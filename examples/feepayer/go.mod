@@ -1,13 +1,13 @@
-module github.com/tempo/tempo-go/examples/feepayer
+module github.com/tempoxyz/tempo-go/examples/feepayer
 
 go 1.21
 
 require (
 	github.com/joho/godotenv v1.5.1
-	github.com/tempo/tempo-go v0.0.0
+	github.com/tempoxyz/tempo-go v0.0.0
 )
 
-replace github.com/tempo/tempo-go => ../..
+replace github.com/tempoxyz/tempo-go => ../..
 
 require (
 	github.com/btcsuite/btcd/btcec/v2 v2.2.0 // indirect

@@ -8,7 +8,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/rlp"
-	"github.com/tempo/tempo-go/pkg/signer"
+	"github.com/tempoxyz/tempo-go/pkg/signer"
 )
 
 // Deserialize parses a serialized TempoTransaction.

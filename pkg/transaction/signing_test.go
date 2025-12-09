@@ -6,7 +6,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/assert"
-	"github.com/tempo/tempo-go/pkg/signer"
+	"github.com/tempoxyz/tempo-go/pkg/signer"
 )
 
 // test private keys pull from `anvil` using default seed -- please don't use these in production! they are technically valid.

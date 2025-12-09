@@ -12,9 +12,9 @@ import (
 	"strings"
 
 	"github.com/joho/godotenv"
-	"github.com/tempo/tempo-go/pkg/client"
-	"github.com/tempo/tempo-go/pkg/signer"
-	"github.com/tempo/tempo-go/pkg/transaction"
+	"github.com/tempoxyz/tempo-go/pkg/client"
+	"github.com/tempoxyz/tempo-go/pkg/signer"
+	"github.com/tempoxyz/tempo-go/pkg/transaction"
 )
 
 const (
