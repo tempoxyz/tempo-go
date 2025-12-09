@@ -5,7 +5,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/tempo/tempo-go/pkg/signer"
+	"github.com/tempoxyz/tempo-go/pkg/signer"
 )
 
 // ComputeHash computes the Keccak256 hash of a serialized transaction.

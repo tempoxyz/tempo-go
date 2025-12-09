@@ -8,7 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/assert"
-	"github.com/tempo/tempo-go/pkg/signer"
+	"github.com/tempoxyz/tempo-go/pkg/signer"
 )
 
 func TestSerialize(t *testing.T) {

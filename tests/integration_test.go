@@ -10,9 +10,9 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tempo/tempo-go/pkg/client"
-	"github.com/tempo/tempo-go/pkg/signer"
-	"github.com/tempo/tempo-go/pkg/transaction"
+	"github.com/tempoxyz/tempo-go/pkg/client"
+	"github.com/tempoxyz/tempo-go/pkg/signer"
+	"github.com/tempoxyz/tempo-go/pkg/transaction"
 )
 
 const (

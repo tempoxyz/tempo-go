@@ -8,9 +8,9 @@ import (
 	"strconv"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/tempo/tempo-go/pkg/client"
-	"github.com/tempo/tempo-go/pkg/signer"
-	"github.com/tempo/tempo-go/pkg/transaction"
+	"github.com/tempoxyz/tempo-go/pkg/client"
+	"github.com/tempoxyz/tempo-go/pkg/signer"
+	"github.com/tempoxyz/tempo-go/pkg/transaction"
 )
 
 // getEnv gets an environment variable or returns a default value

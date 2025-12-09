@@ -14,7 +14,7 @@ Go SDK for building applications on [Tempo](https://tempo.xyz)
 ## Installation
 
 ```bash
-go get github.com/tempo/tempo-go
+go get github.com/tempoxyz/tempo-go
 ```
 
 ## Quick Start
@@ -27,9 +27,9 @@ import (
     "math/big"
 
     "github.com/ethereum/go-ethereum/common"
-    "github.com/tempo/tempo-go/pkg/client"
-    "github.com/tempo/tempo-go/pkg/signer"
-    "github.com/tempo/tempo-go/pkg/transaction"
+    "github.com/tempoxyz/tempo-go/pkg/client"
+    "github.com/tempoxyz/tempo-go/pkg/signer"
+    "github.com/tempoxyz/tempo-go/pkg/transaction"
 )
 
 func main() {
@@ -137,8 +137,8 @@ client.SendTransaction(tx)
 | Package | Description | Documentation |
 |---------|-------------|---------------|
 | `transaction` | TempoTransaction encoding, signing, and validation | [README](pkg/transaction/README.md) |
-| `client` | RPC client for interacting with Tempo nodes | [GoDoc](https://pkg.go.dev/github.com/tempo/tempo-go/pkg/client) |
-| `signer` | Key management and signature generation | [GoDoc](https://pkg.go.dev/github.com/tempo/tempo-go/pkg/signer) |
+| `client` | RPC client for interacting with Tempo nodes | [GoDoc](https://pkg.go.dev/github.com/tempoxyz/tempo-go/pkg/client) |
+| `signer` | Key management and signature generation | [GoDoc](https://pkg.go.dev/github.com/tempoxyz/tempo-go/pkg/signer) |
 
 ## Testing
 
@@ -183,10 +183,10 @@ View documentation locally:
 
 ```bash
 make docs
-# Opens at http://localhost:6060/pkg/github.com/tempo/tempo-go/
+# Opens at http://localhost:6060/pkg/github.com/tempoxyz/tempo-go/
 ```
 
-Full API documentation is also available on [pkg.go.dev](https://pkg.go.dev/github.com/tempo/tempo-go).
+Full API documentation is also available on [pkg.go.dev](https://pkg.go.dev/github.com/tempoxyz/tempo-go).
 
 ## Development Setup
 
@@ -198,7 +198,7 @@ Full API documentation is also available on [pkg.go.dev](https://pkg.go.dev/gith
 ### Building
 
 ```bash
-git clone https://github.com/tempo/tempo-go.git
+git clone https://github.com/tempoxyz/tempo-go.git
 cd tempo-go
 
 go mod download

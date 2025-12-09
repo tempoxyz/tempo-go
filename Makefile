@@ -42,6 +42,6 @@ integration:
 # Start godoc server for viewing documentation
 docs:
 	which godoc > /dev/null || (echo "Installing godoc..." && go install golang.org/x/tools/cmd/godoc@latest)
-	echo "Documentation available at http://localhost:6060/pkg/github.com/tempo/tempo-go/"
+	echo "Documentation available at http://localhost:6060/pkg/github.com/tempoxyz/tempo-go/"
 	echo "Press Ctrl+C to stop the server"
 	@godoc -http=:6060

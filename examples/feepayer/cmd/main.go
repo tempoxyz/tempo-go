@@ -3,9 +3,9 @@ package main
 import (
 	"log"
 
-	"github.com/tempo/tempo-go/examples/feepayer/server"
-	"github.com/tempo/tempo-go/pkg/client"
-	"github.com/tempo/tempo-go/pkg/signer"
+	"github.com/tempoxyz/tempo-go/examples/feepayer/server"
+	"github.com/tempoxyz/tempo-go/pkg/client"
+	"github.com/tempoxyz/tempo-go/pkg/signer"
 )
 
 func main() {

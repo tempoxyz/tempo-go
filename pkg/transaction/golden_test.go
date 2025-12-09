@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/tempo/tempo-go/pkg/signer"
+	"github.com/tempoxyz/tempo-go/pkg/signer"
 )
 
 // TestTempoGoldenFormat tests compatibility with tempo.ts transaction format

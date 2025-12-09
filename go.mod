@@ -1,4 +1,4 @@
-module github.com/tempo/tempo-go
+module github.com/tempoxyz/tempo-go
 
 go 1.21
 
