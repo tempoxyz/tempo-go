@@ -1,15 +1,30 @@
+<br>
+<br>
+
+<p align="center">
+  <a href="https://tempo.xyz">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/tempoxyz/.github/refs/heads/main/assets/combomark-dark.svg">
+      <img alt="tempo combomark" src="https://raw.githubusercontent.com/tempoxyz/.github/refs/heads/main/assets/combomark-bright.svg" width="auto" height="120">
+    </picture>
+  </a>
+</p>
+
+<br>
+<br>
+
 # tempo-go
 
 Go SDK for building applications on [Tempo](https://tempo.xyz)
 
 **Contents**
+
 - [Installation](#installation)
 - [Quick Start](#quick-start)
 - [Example Usage](#example-usage)
 - [Packages](#packages)
 - [Testing](#testing)
 - [Development Setup](#development-setup)
-
 
 ## Installation
 
@@ -71,11 +86,11 @@ func buildERC20TransferData(to common.Address, amount *big.Int) []byte {
 
 ## Example Usage
 
-| Use Case | Example |
-|----------|---------|
-| **Basic Transfer** | [examples/simple-send](examples/simple-send) |
-| **Fee Sponsorship** | [examples/feepayer](examples/feepayer) |
-| **Batch Calls** | See [transaction tests](pkg/transaction/transaction_test.go) |
+| Use Case            | Example                                                      |
+| ------------------- | ------------------------------------------------------------ |
+| **Basic Transfer**  | [examples/simple-send](examples/simple-send)                 |
+| **Fee Sponsorship** | [examples/feepayer](examples/feepayer)                       |
+| **Batch Calls**     | See [transaction tests](pkg/transaction/transaction_test.go) |
 
 ### Basic Transfer
 
@@ -134,11 +149,11 @@ client.SendTransaction(tx)
 
 ## Packages
 
-| Package | Description | Documentation |
-|---------|-------------|---------------|
-| `transaction` | TempoTransaction encoding, signing, and validation | [README](pkg/transaction/README.md) |
-| `client` | RPC client for interacting with Tempo nodes | [GoDoc](https://pkg.go.dev/github.com/tempo/tempo-go/pkg/client) |
-| `signer` | Key management and signature generation | [GoDoc](https://pkg.go.dev/github.com/tempo/tempo-go/pkg/signer) |
+| Package       | Description                                        | Documentation                                                    |
+| ------------- | -------------------------------------------------- | ---------------------------------------------------------------- |
+| `transaction` | TempoTransaction encoding, signing, and validation | [README](pkg/transaction/README.md)                              |
+| `client`      | RPC client for interacting with Tempo nodes        | [GoDoc](https://pkg.go.dev/github.com/tempo/tempo-go/pkg/client) |
+| `signer`      | Key management and signature generation            | [GoDoc](https://pkg.go.dev/github.com/tempo/tempo-go/pkg/signer) |
 
 ## Testing
 
@@ -224,3 +239,20 @@ make build_examples
 ```bash
 make fix
 ```
+
+## Contributing
+
+Our contributor guidelines can be found in [`CONTRIBUTING.md`](https://github.com/tempoxyz/tempo?tab=contributing-ov-file).
+
+## Security
+
+See [`SECURITY.md`](https://github.com/tempoxyz/tempo?tab=security-ov-file). Note: Tempo is still undergoing audit and does not have an active bug bounty. Submissions will not be eligible for a bounty until audits have concluded.
+
+## License
+
+Licensed under either of [Apache License](./LICENSE-APACHE), Version
+2.0 or [MIT License](./LICENSE-MIT) at your option.
+
+Unless you explicitly state otherwise, any contribution intentionally submitted
+for inclusion in these crates by you, as defined in the Apache-2.0 license,
+shall be dual licensed as above, without any additional terms or conditions.
