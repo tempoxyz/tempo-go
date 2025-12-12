@@ -1,4 +1,4 @@
-.PHONY: build_examples clean test check fix help integration docs
+.PHONY: build_examples clean test check fix help integration docs fuzz fuzz-all
 
 # Default target
 all: check
@@ -45,3 +45,27 @@ docs:
 	echo "Documentation available at http://localhost:6060/pkg/github.com/tempoxyz/tempo-go/"
 	echo "Press Ctrl+C to stop the server"
 	@godoc -http=:6060
+
+# Fuzz test duration (default 10s, override with FUZZTIME=1m)
+FUZZTIME ?= 10s
+
+# Run a single fuzz test: make fuzz FUZZ=FuzzTestName PKG=./pkg/transaction/
+fuzz:
+ifndef FUZZ
+	$(error Usage: make fuzz FUZZ=FuzzTestName PKG=./pkg/package/)
+endif
+ifndef PKG
+	$(error Usage: make fuzz FUZZ=FuzzTestName PKG=./pkg/package/)
+endif
+	go test -fuzz=$(FUZZ) -fuzztime=$(FUZZTIME) $(PKG)
+
+# Run all fuzz tests sequentially
+fuzz-all:
+	@for pkg in ./pkg/transaction ./pkg/signer; do \
+		echo "=== Fuzzing $$pkg ==="; \
+		for test in $$(go test -list 'Fuzz.*' $$pkg 2>/dev/null | grep '^Fuzz'); do \
+			echo "Running $$test..."; \
+			go test -fuzz=$$test -fuzztime=$(FUZZTIME) $$pkg || exit 1; \
+		done; \
+	done
+	@echo "=== All fuzz tests complete ==="
