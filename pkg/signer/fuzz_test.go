@@ -61,25 +61,16 @@ func FuzzRecoverAddressWithMalformedSignature(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, hashBytes, rBytes, sBytes []byte, yParity uint8) {
 		var hash common.Hash
-		// clip to 32 bytes
 		if len(hashBytes) >= 32 {
 			copy(hash[:], hashBytes[:32])
 		} else if len(hashBytes) > 0 {
 			copy(hash[32-len(hashBytes):], hashBytes)
 		}
 
-		// clip to 32 bytes
-		if len(rBytes) > 32 {
-			rBytes = rBytes[:32]
-		}
-		if len(sBytes) > 32 {
-			sBytes = sBytes[:32]
-		}
-
 		r := new(big.Int).SetBytes(rBytes)
 		s := new(big.Int).SetBytes(sBytes)
 
-		sig := NewSignature(r, s, yParity%2)
+		sig := NewSignature(r, s, yParity)
 
 		// never panic
 		_, _ = RecoverAddress(hash, sig)
