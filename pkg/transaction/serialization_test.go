@@ -1,11 +1,13 @@
 package transaction
 
 import (
+	"encoding/hex"
 	"math/big"
 	"strings"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/assert"
 	"github.com/tempoxyz/tempo-go/pkg/signer"
@@ -331,45 +333,84 @@ func TestDecodeAccessList(t *testing.T) {
 }
 
 func TestDecodeSignature(t *testing.T) {
+	big33Bytes := new(big.Int).Lsh(big.NewInt(1), 256)
+	max32Bytes := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1))
+
 	tests := []struct {
-		name    string
-		input   []interface{}
-		want    *signer.Signature
-		wantErr bool
+		name       string
+		r          []byte
+		s          []byte
+		yParity    byte
+		want       *signer.Signature
+		wantErr    bool
+		wantErrStr string
 	}{
 		{
-			name: "valid signature",
-			input: []interface{}{
-				[]byte{0},
-				big.NewInt(12345).Bytes(),
-				big.NewInt(67890).Bytes(),
-			},
-			want: signer.NewSignature(big.NewInt(12345), big.NewInt(67890), 0),
+			name:    "valid signature",
+			r:       big.NewInt(12345).Bytes(),
+			s:       big.NewInt(67890).Bytes(),
+			yParity: 0,
+			want:    signer.NewSignature(big.NewInt(12345), big.NewInt(67890), 0),
 		},
 		{
-			name: "signature with yParity = 1",
-			input: []interface{}{
-				[]byte{1},
-				big.NewInt(12345).Bytes(),
-				big.NewInt(67890).Bytes(),
-			},
-			want: signer.NewSignature(big.NewInt(12345), big.NewInt(67890), 1),
+			name:    "signature with yParity = 1",
+			r:       big.NewInt(12345).Bytes(),
+			s:       big.NewInt(67890).Bytes(),
+			yParity: 1,
+			want:    signer.NewSignature(big.NewInt(12345), big.NewInt(67890), 1),
 		},
 		{
-			name: "invalid - wrong length",
-			input: []interface{}{
-				[]byte{0},
-				big.NewInt(12345).Bytes(),
-			},
-			wantErr: true,
+			name:    "empty R and S",
+			r:       []byte{},
+			s:       []byte{},
+			yParity: 0,
+			want:    signer.NewSignature(big.NewInt(0), big.NewInt(0), 0),
+		},
+		{
+			name:    "max valid size (32 bytes)",
+			r:       max32Bytes.Bytes(),
+			s:       max32Bytes.Bytes(),
+			yParity: 0,
+			want:    signer.NewSignature(max32Bytes, max32Bytes, 0),
+		},
+		{
+			name:       "oversized R (33 bytes)",
+			r:          big33Bytes.Bytes(),
+			s:          big.NewInt(1).Bytes(),
+			yParity:    0,
+			wantErr:    true,
+			wantErrStr: "r exceeds maximum size",
+		},
+		{
+			name:       "oversized S (33 bytes)",
+			r:          big.NewInt(1).Bytes(),
+			s:          big33Bytes.Bytes(),
+			yParity:    0,
+			wantErr:    true,
+			wantErrStr: "s exceeds maximum size",
+		},
+		{
+			name:       "oversized R and S",
+			r:          big33Bytes.Bytes(),
+			s:          big33Bytes.Bytes(),
+			yParity:    0,
+			wantErr:    true,
+			wantErrStr: "r exceeds maximum size",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := decodeSignature(tt.input)
+			input := []interface{}{
+				[]byte{tt.yParity},
+				tt.r,
+				tt.s,
+			}
+			got, err := decodeSignature(input)
 			if tt.wantErr {
 				assert.Error(t, err)
+				assert.Nil(t, got)
+				assert.Contains(t, err.Error(), tt.wantErrStr)
 				return
 			}
 			assert.NoError(t, err)
@@ -378,6 +419,16 @@ func TestDecodeSignature(t *testing.T) {
 			assert.Equal(t, 0, got.S.Cmp(tt.want.S))
 		})
 	}
+}
+
+func TestDecodeSignature_InvalidTupleLength(t *testing.T) {
+	input := []interface{}{
+		[]byte{0},
+		big.NewInt(12345).Bytes(),
+	}
+	got, err := decodeSignature(input)
+	assert.Error(t, err)
+	assert.Nil(t, got)
 }
 
 func TestRoundtrip(t *testing.T) {
@@ -566,6 +617,69 @@ func TestRoundtripWithOptions(t *testing.T) {
 		assert.NoError(t, err)
 		assert.True(t, cmp.Equal(tx, deserialized, cmpOpts...), "Roundtrip with normal format failed: %s", cmp.Diff(tx, deserialized, cmpOpts...))
 	})
+}
+
+func TestDeserialize_OversizedSignature(t *testing.T) {
+	big33Bytes := new(big.Int).Lsh(big.NewInt(1), 256) // 33 bytes
+
+	tests := []struct {
+		name       string
+		r          []byte
+		s          []byte
+		wantErrStr string
+	}{
+		{
+			name:       "oversized R in fee payer signature",
+			r:          big33Bytes.Bytes(),
+			s:          big.NewInt(1).Bytes(),
+			wantErrStr: "r exceeds maximum size",
+		},
+		{
+			name:       "oversized S in fee payer signature",
+			r:          big.NewInt(1).Bytes(),
+			s:          big33Bytes.Bytes(),
+			wantErrStr: "s exceeds maximum size",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rlpList := []interface{}{
+				big.NewInt(42424).Bytes(),   // chainId
+				big.NewInt(1000000).Bytes(), // maxPriorityFeePerGas
+				big.NewInt(2000000).Bytes(), // maxFeePerGas
+				big.NewInt(21000).Bytes(),   // gas
+				[]interface{}{ // calls
+					[]interface{}{
+						common.HexToAddress("0x1234567890123456789012345678901234567890").Bytes(),
+						big.NewInt(1000000).Bytes(),
+						[]byte{},
+					},
+				},
+				[]interface{}{},       // accessList
+				[]byte{},              // nonceKey
+				big.NewInt(1).Bytes(), // nonce
+				[]byte{},              // validBefore
+				[]byte{},              // validAfter
+				[]byte{},              // feeToken
+				[]interface{}{ // fee payer signature
+					[]byte{0},
+					tt.r,
+					tt.s,
+				},
+				[]interface{}{}, // authorizationList
+			}
+
+			rlpBytes, err := rlp.EncodeToBytes(rlpList)
+			assert.NoError(t, err)
+
+			serialized := "0x76" + hex.EncodeToString(rlpBytes)
+
+			_, err = Deserialize(serialized)
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErrStr)
+		})
+	}
 }
 
 // Helper functions

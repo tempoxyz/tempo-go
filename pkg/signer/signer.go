@@ -81,8 +81,28 @@ func (s *Signer) SignData(data []byte) (*Signature, error) {
 	return s.Sign(hash)
 }
 
+// maxScalarBytes is the maximum byte length for secp256k1 scalar values (R and S).
+// Scalars must fit within 32 bytes (256 bits) to be valid signature components.
+const maxScalarBytes = 32
+
 // RecoverAddress recovers the address that signed the given hash with the given signature.
 func RecoverAddress(hash common.Hash, sig *Signature) (common.Address, error) {
+	if sig == nil {
+		return common.Address{}, fmt.Errorf("%w: signature is nil", ErrInvalidSignature)
+	}
+	if sig.R == nil || sig.S == nil {
+		return common.Address{}, fmt.Errorf("%w: R or S is nil", ErrInvalidSignature)
+	}
+
+	rBytes := sig.R.Bytes()
+	if len(rBytes) > maxScalarBytes {
+		return common.Address{}, fmt.Errorf("%w: R exceeds %d bytes (got %d)", ErrInvalidSignature, maxScalarBytes, len(rBytes))
+	}
+	sBytes := sig.S.Bytes()
+	if len(sBytes) > maxScalarBytes {
+		return common.Address{}, fmt.Errorf("%w: S exceeds %d bytes (got %d)", ErrInvalidSignature, maxScalarBytes, len(sBytes))
+	}
+
 	sigBytes := make([]byte, 65)
 	sig.R.FillBytes(sigBytes[0:32])
 	sig.S.FillBytes(sigBytes[32:64])
