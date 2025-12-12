@@ -269,6 +269,10 @@ func decodeAccessList(accessListRaw []interface{}) (AccessList, error) {
 	return accessList, nil
 }
 
+// maxSignatureScalarBytes is the maximum byte length for secp256k1 signature scalars (R and S).
+// Valid signature components must fit within 32 bytes (256 bits).
+const maxSignatureScalarBytes = 32
+
 // decodeSignature decodes a signature tuple [yParity, r, s].
 func decodeSignature(sigTuple []interface{}) (*signer.Signature, error) {
 	if len(sigTuple) != 3 {
@@ -294,12 +298,21 @@ func decodeSignature(sigTuple []interface{}) (*signer.Signature, error) {
 	if !ok {
 		return nil, fmt.Errorf("r is not bytes")
 	}
+	// Validate R size to prevent DoS via oversized signature components.
+	// Oversized values would cause a panic in RecoverAddress when using FillBytes.
+	if len(rBytes) > maxSignatureScalarBytes {
+		return nil, fmt.Errorf("r exceeds maximum size: got %d bytes, max %d", len(rBytes), maxSignatureScalarBytes)
+	}
 	r := new(big.Int).SetBytes(rBytes)
 
 	// Field 2: s
 	sBytes, ok := sigTuple[2].([]byte)
 	if !ok {
 		return nil, fmt.Errorf("s is not bytes")
+	}
+	// Validate S size to prevent DoS via oversized signature components.
+	if len(sBytes) > maxSignatureScalarBytes {
+		return nil, fmt.Errorf("s exceeds maximum size: got %d bytes, max %d", len(sBytes), maxSignatureScalarBytes)
 	}
 	s := new(big.Int).SetBytes(sBytes)
 

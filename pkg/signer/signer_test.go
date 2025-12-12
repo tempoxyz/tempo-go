@@ -1,8 +1,11 @@
 package signer
 
 import (
+	"errors"
+	"math/big"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/assert"
 )
@@ -113,4 +116,71 @@ func TestRecoverAddress(t *testing.T) {
 	assert.NoError(t, err)
 
 	assert.Equal(t, sgn.Address(), recoveredAddr)
+}
+
+func TestRecoverAddress_InvalidSignatures(t *testing.T) {
+	big33Bytes := new(big.Int).Lsh(big.NewInt(1), 256) // 2^256 requires 33 bytes
+
+	tests := []struct {
+		name       string
+		sig        *Signature
+		wantErr    bool
+		wantErrStr string
+	}{
+		{
+			name:       "nil signature",
+			sig:        nil,
+			wantErr:    true,
+			wantErrStr: "signature is nil",
+		},
+		{
+			name:       "nil R",
+			sig:        &Signature{R: nil, S: big.NewInt(1), YParity: 0},
+			wantErr:    true,
+			wantErrStr: "nil",
+		},
+		{
+			name:       "nil S",
+			sig:        &Signature{R: big.NewInt(1), S: nil, YParity: 0},
+			wantErr:    true,
+			wantErrStr: "nil",
+		},
+		{
+			name:       "nil R and S",
+			sig:        &Signature{R: nil, S: nil, YParity: 0},
+			wantErr:    true,
+			wantErrStr: "nil",
+		},
+		{
+			name:       "oversized R (33 bytes)",
+			sig:        &Signature{R: big33Bytes, S: big.NewInt(1), YParity: 0},
+			wantErr:    true,
+			wantErrStr: "R exceeds",
+		},
+		{
+			name:       "oversized S (33 bytes)",
+			sig:        &Signature{R: big.NewInt(1), S: big33Bytes, YParity: 0},
+			wantErr:    true,
+			wantErrStr: "S exceeds",
+		},
+		{
+			name:       "oversized R and S",
+			sig:        &Signature{R: big33Bytes, S: big33Bytes, YParity: 0},
+			wantErr:    true,
+			wantErrStr: "R exceeds",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := RecoverAddress(common.Hash{}, tt.sig)
+			if tt.wantErr {
+				assert.Error(t, err)
+				assert.True(t, errors.Is(err, ErrInvalidSignature))
+				assert.Contains(t, err.Error(), tt.wantErrStr)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
 }
