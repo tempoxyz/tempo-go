@@ -32,6 +32,18 @@ Go SDK for building applications on [Tempo](https://tempo.xyz)
 go get github.com/tempoxyz/tempo-go
 ```
 
+### Go Version Requirements
+
+| tempo-go version | Go version | Notes |
+|------------------|------------|-------|
+| v0.2.0+          | 1.24+      | Security fix for CVE-2026-22868 |
+| v0.1.0           | 1.21+      | Vulnerable to CVE-2026-22868 (go-ethereum DoS) |
+
+If you need Go 1.21-1.23 support, pin to v0.1.0:
+```bash
+go get github.com/tempoxyz/tempo-go@v0.1.0
+```
+
 ## Quick Start
 
 ```go
@@ -207,7 +219,7 @@ Full API documentation is also available on [pkg.go.dev](https://pkg.go.dev/gith
 
 ### Prerequisites
 
-- Go 1.21 or higher
+- Go 1.24 or higher (see [Go Version Requirements](#go-version-requirements))
 - Make
 
 ### Building
