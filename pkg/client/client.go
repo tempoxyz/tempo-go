@@ -224,6 +224,22 @@ func (c *Client) GetBlockNumber(ctx context.Context) (uint64, error) {
 	return parseHexUint64(blockNumHex)
 }
 
+// GetChainID gets the chain ID from the connected node.
+func (c *Client) GetChainID(ctx context.Context) (uint64, error) {
+	response, err := c.SendRequest(ctx, "eth_chainId")
+	if err != nil {
+		return 0, err
+	}
+	if err := response.CheckError(); err != nil {
+		return 0, err
+	}
+	chainIDHex, ok := response.Result.(string)
+	if !ok {
+		return 0, fmt.Errorf("unexpected result type: %T", response.Result)
+	}
+	return parseHexUint64(chainIDHex)
+}
+
 // SendBatch sends a batch of JSON-RPC requests to the Tempo network.
 // This is more efficient than sending multiple individual requests.
 // All requests are sent in a single HTTP request to reduce network overhead.

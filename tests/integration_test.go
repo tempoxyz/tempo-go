@@ -41,7 +41,7 @@ var (
 
 var (
 	rpcURL  string
-	chainID = int64(1337) // Tempo dev mode default chain ID
+	chainID int64
 )
 
 func init() {
@@ -50,6 +50,22 @@ func init() {
 	if rpcURL == "" {
 		panic("TEMPO_RPC_URL environment variable must be set to run integration tests. Example: export TEMPO_RPC_URL=https://rpc.testnet.tempo.xyz")
 	}
+}
+
+// getChainID fetches and caches the chain ID from the RPC node.
+func getChainID(t *testing.T, rpcClient *client.Client) int64 {
+	t.Helper()
+	if chainID != 0 {
+		return chainID
+	}
+	ctx := context.Background()
+	id, err := rpcClient.GetChainID(ctx)
+	if err != nil {
+		t.Fatalf("Failed to get chain ID: %v", err)
+	}
+	chainID = int64(id)
+	t.Logf("Chain ID: %d", chainID)
+	return chainID
 }
 
 // TestIntegration_SimpleTransaction tests creating, signing, and sending a simple transaction.
@@ -66,6 +82,7 @@ func TestIntegration_SimpleTransaction(t *testing.T) {
 	t.Logf("Recipient address: %s", recipient.Address().Hex())
 
 	rpcClient := client.New(rpcURL)
+	cid := getChainID(t, rpcClient)
 
 	// Get initial block number to verify node is running
 	blockNum, err := rpcClient.GetBlockNumber(ctx)
@@ -76,7 +93,7 @@ func TestIntegration_SimpleTransaction(t *testing.T) {
 	require.NoError(t, err)
 	t.Logf("Sender nonce: %d", nonce)
 
-	tx := transaction.NewBuilder(big.NewInt(chainID)).
+	tx := transaction.NewBuilder(big.NewInt(cid)).
 		SetNonce(nonce).
 		SetGas(100000).
 		SetMaxFeePerGas(big.NewInt(10000000000)).
@@ -117,9 +134,12 @@ func TestIntegration_SimpleTransaction(t *testing.T) {
 
 // TestIntegration_BuilderValidation tests the BuildAndValidate method.
 func TestIntegration_BuilderValidation(t *testing.T) {
+	rpcClient := client.New(rpcURL)
+	cid := getChainID(t, rpcClient)
+
 	recipient := common.HexToAddress("0x1234567890123456789012345678901234567890")
 
-	tx, err := transaction.NewBuilder(big.NewInt(chainID)).
+	tx, err := transaction.NewBuilder(big.NewInt(cid)).
 		SetGas(100000).
 		SetFeeToken(common.HexToAddress(feeTokenAddress)).
 		AddCall(recipient, big.NewInt(0), []byte{}).
@@ -128,7 +148,7 @@ func TestIntegration_BuilderValidation(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, tx)
 
-	_, err = transaction.NewBuilder(big.NewInt(chainID)).
+	_, err = transaction.NewBuilder(big.NewInt(cid)).
 		SetFeeToken(common.HexToAddress(feeTokenAddress)).
 		AddCall(recipient, big.NewInt(0), []byte{}).
 		BuildAndValidate()
@@ -139,10 +159,13 @@ func TestIntegration_BuilderValidation(t *testing.T) {
 
 // TestIntegration_TransactionClone tests the Clone method.
 func TestIntegration_TransactionClone(t *testing.T) {
+	rpcClient := client.New(rpcURL)
+	cid := getChainID(t, rpcClient)
+
 	recipient1 := common.HexToAddress("0x1111111111111111111111111111111111111111")
 	recipient2 := common.HexToAddress("0x2222222222222222222222222222222222222222")
 
-	template := transaction.NewBuilder(big.NewInt(chainID)).
+	template := transaction.NewBuilder(big.NewInt(cid)).
 		SetGas(100000).
 		SetMaxFeePerGas(big.NewInt(10000000000)).
 		SetFeeToken(common.HexToAddress(feeTokenAddress)).
@@ -184,12 +207,13 @@ func TestIntegration_FeePayerTransaction(t *testing.T) {
 	t.Logf("Recipient address: %s", recipient.Address().Hex())
 
 	rpcClient := client.New(rpcURL)
+	cid := getChainID(t, rpcClient)
 
 	nonce, err := rpcClient.GetTransactionCount(ctx, sender.Address().Hex())
 	require.NoError(t, err)
 	t.Logf("Sender nonce: %d", nonce)
 
-	tx := transaction.NewBuilder(big.NewInt(chainID)).
+	tx := transaction.NewBuilder(big.NewInt(cid)).
 		SetNonce(nonce).
 		SetGas(100000).
 		SetMaxFeePerGas(big.NewInt(10000000000)).
@@ -241,13 +265,14 @@ func TestIntegration_BatchTransactions(t *testing.T) {
 	}
 
 	rpcClient := client.New(rpcURL)
+	cid := getChainID(t, rpcClient)
 
 	baseNonce, err := rpcClient.GetTransactionCount(ctx, sender.Address().Hex())
 	require.NoError(t, err)
 
 	var txHashes []string
 	for i, recipient := range recipients {
-		tx := transaction.NewBuilder(big.NewInt(chainID)).
+		tx := transaction.NewBuilder(big.NewInt(cid)).
 			SetGas(100000).
 			SetMaxFeePerGas(big.NewInt(10000000000)).
 			SetMaxPriorityFeePerGas(big.NewInt(10000000000)).
@@ -280,11 +305,12 @@ func TestIntegration_MultiCall(t *testing.T) {
 	require.NoError(t, err)
 
 	rpcClient := client.New(rpcURL)
+	cid := getChainID(t, rpcClient)
 
 	nonce, err := rpcClient.GetTransactionCount(ctx, sender.Address().Hex())
 	require.NoError(t, err)
 
-	tx := transaction.NewBuilder(big.NewInt(chainID)).
+	tx := transaction.NewBuilder(big.NewInt(cid)).
 		SetNonce(nonce).
 		SetGas(200000).
 		SetMaxFeePerGas(big.NewInt(10000000000)).
@@ -322,13 +348,16 @@ func TestIntegration_MultiCall(t *testing.T) {
 
 // TestIntegration_RoundTrip tests full serialization round-trip.
 func TestIntegration_RoundTrip(t *testing.T) {
+	rpcClient := client.New(rpcURL)
+	cid := getChainID(t, rpcClient)
+
 	sender, err := signer.NewSigner(testPrivateKey1)
 	require.NoError(t, err)
 
 	recipient := common.HexToAddress("0x1234567890123456789012345678901234567890")
 
 	// Create and sign transaction
-	originalTx := transaction.NewBuilder(big.NewInt(chainID)).
+	originalTx := transaction.NewBuilder(big.NewInt(cid)).
 		SetGas(100000).
 		SetMaxFeePerGas(big.NewInt(10000000000)).
 		SetMaxPriorityFeePerGas(big.NewInt(10000000000)).
