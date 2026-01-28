@@ -97,7 +97,7 @@ jobs:
     name: Integration Tests (Devnet)
     runs-on: ubuntu-latest
     needs: test
-    if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main') && vars.HAS_DEVNET_SECRET == 'true'
+    if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main')
 
     steps:
     - name: Checkout code
@@ -120,7 +120,7 @@ jobs:
     name: Integration Tests (Testnet)
     runs-on: ubuntu-latest
     needs: test
-    if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main') && vars.HAS_TESTNET_SECRET == 'true'
+    if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main')
 
     steps:
     - name: Checkout code
