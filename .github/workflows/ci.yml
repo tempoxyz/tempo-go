@@ -5,6 +5,9 @@ on:
     branches: [ main, master ]
   pull_request:
     branches: [ main, master ]
+  schedule:
+    - cron: '0 */6 * * *'  # Every 6 hours - catch tempo drift early
+  workflow_dispatch:  # Manual trigger
 
 jobs:
   test:
@@ -42,8 +45,8 @@ jobs:
     - name: Build examples
       run: make build_examples
 
-  integration:
-    name: Integration Tests
+  integration-localnet:
+    name: Integration Tests (Localnet)
     runs-on: ubuntu-latest
     needs: test
 
@@ -89,3 +92,49 @@ jobs:
     - name: Stop Tempo node
       if: always()
       run: docker compose down
+
+  integration-devnet:
+    name: Integration Tests (Devnet)
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.24'
+
+    - name: Download dependencies
+      run: go mod download
+
+    - name: Run integration tests against devnet
+      run: make integration
+      env:
+        TEMPO_RPC_URL: ${{ secrets.DEVNET_RPC_URL }}
+
+  integration-testnet:
+    name: Integration Tests (Testnet)
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.24'
+
+    - name: Download dependencies
+      run: go mod download
+
+    - name: Run integration tests against testnet
+      run: make integration
+      env:
+        TEMPO_RPC_URL: ${{ secrets.TESTNET_RPC_URL }}
