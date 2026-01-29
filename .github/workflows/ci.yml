@@ -110,7 +110,7 @@ jobs:
       run: go mod download
 
     - name: Run integration tests against devnet
-      run: make integration
+      run: go test -v -run TestIntegration -timeout=10m ./tests
       env:
         TEMPO_RPC_URL: ${{ secrets.DEVNET_RPC_URL }}
 
@@ -132,6 +132,6 @@ jobs:
       run: go mod download
 
     - name: Run integration tests against testnet
-      run: make integration
+      run: go test -v -run TestIntegration -timeout=10m ./tests
       env:
         TEMPO_RPC_URL: ${{ secrets.TESTNET_RPC_URL }}
