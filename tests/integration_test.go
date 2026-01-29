@@ -48,9 +48,9 @@ var (
 	// increment() selector
 	incrementSelector = mustDecodeHex("d09de08a")
 	// mint(address,address,uint256,address) selector
-	mintSelector = mustDecodeHex("0b39c529")
+	mintSelector = mustDecodeHex("f1aa8cb8")
 	// setUserToken(address) selector
-	setUserTokenSelector = mustDecodeHex("8a7fcf3f")
+	setUserTokenSelector = mustDecodeHex("e7897444")
 	// authorizeKey(address,uint8,uint64,bool,(address,uint256)[]) selector
 	authorizeKeySelector = mustDecodeHex("54063a55")
 )
@@ -277,6 +277,7 @@ func TestIntegration_SimpleTransaction(t *testing.T) {
 	ctx := context.Background()
 	rpcClient := client.New(rpcURL)
 	cid := getChainID(t, rpcClient)
+	gasPrice := getGasPrice(t, rpcClient)
 
 	sender := createAndFundSigner(t, rpcClient)
 	t.Logf("Sender address: %s", sender.Address().Hex())
@@ -287,8 +288,8 @@ func TestIntegration_SimpleTransaction(t *testing.T) {
 	tx := transaction.NewBuilder(big.NewInt(cid)).
 		SetNonce(nonce).
 		SetGas(300000).
-		SetMaxFeePerGas(big.NewInt(10000000000)).
-		SetMaxPriorityFeePerGas(big.NewInt(10000000000)).
+		SetMaxFeePerGas(gasPrice).
+		SetMaxPriorityFeePerGas(gasPrice).
 		AddCall(counterContract, big.NewInt(0), incrementSelector).
 		Build()
 
@@ -314,6 +315,7 @@ func TestIntegration_FeeTokenLiquidity(t *testing.T) {
 	ctx := context.Background()
 	rpcClient := client.New(rpcURL)
 	cid := getChainID(t, rpcClient)
+	gasPrice := getGasPrice(t, rpcClient)
 
 	sender := createAndFundSigner(t, rpcClient)
 
@@ -343,9 +345,9 @@ func TestIntegration_FeeTokenLiquidity(t *testing.T) {
 
 			tx := transaction.NewBuilder(big.NewInt(cid)).
 				SetNonce(nonce).
-				SetGas(300000).
-				SetMaxFeePerGas(big.NewInt(10000000000)).
-				SetMaxPriorityFeePerGas(big.NewInt(10000000000)).
+				SetGas(500000).
+				SetMaxFeePerGas(gasPrice).
+				SetMaxPriorityFeePerGas(gasPrice).
 				AddCall(feeController, big.NewInt(0), calldata).
 				Build()
 
@@ -373,6 +375,7 @@ func TestIntegration_SendWithFeeToken(t *testing.T) {
 	ctx := context.Background()
 	rpcClient := client.New(rpcURL)
 	cid := getChainID(t, rpcClient)
+	gasPrice := getGasPrice(t, rpcClient)
 
 	sender := createAndFundSigner(t, rpcClient)
 
@@ -392,8 +395,8 @@ func TestIntegration_SendWithFeeToken(t *testing.T) {
 			tx := transaction.NewBuilder(big.NewInt(cid)).
 				SetNonce(nonce).
 				SetGas(300000).
-				SetMaxFeePerGas(big.NewInt(10000000000)).
-				SetMaxPriorityFeePerGas(big.NewInt(10000000000)).
+				SetMaxFeePerGas(gasPrice).
+				SetMaxPriorityFeePerGas(gasPrice).
 				SetFeeToken(ft.token).
 				AddCall(counterContract, big.NewInt(0), incrementSelector).
 				Build()
@@ -422,6 +425,7 @@ func TestIntegration_2DNonces(t *testing.T) {
 	ctx := context.Background()
 	rpcClient := client.New(rpcURL)
 	cid := getChainID(t, rpcClient)
+	gasPrice := getGasPrice(t, rpcClient)
 
 	sender := createAndFundSigner(t, rpcClient)
 
@@ -435,8 +439,8 @@ func TestIntegration_2DNonces(t *testing.T) {
 				SetNonce(0).
 				SetNonceKey(big.NewInt(key)).
 				SetGas(300000).
-				SetMaxFeePerGas(big.NewInt(10000000000)).
-				SetMaxPriorityFeePerGas(big.NewInt(10000000000)).
+				SetMaxFeePerGas(gasPrice).
+				SetMaxPriorityFeePerGas(gasPrice).
 				AddCall(counterContract, big.NewInt(0), incrementSelector).
 				Build()
 
@@ -464,6 +468,7 @@ func TestIntegration_ExpiringNonces(t *testing.T) {
 	ctx := context.Background()
 	rpcClient := client.New(rpcURL)
 	cid := getChainID(t, rpcClient)
+	gasPrice := getGasPrice(t, rpcClient)
 
 	sender := createAndFundSigner(t, rpcClient)
 
@@ -476,8 +481,8 @@ func TestIntegration_ExpiringNonces(t *testing.T) {
 			SetNonceKey(big.NewInt(100)). // Use unique nonce key
 			SetValidBefore(validBefore).
 			SetGas(300000).
-			SetMaxFeePerGas(big.NewInt(10000000000)).
-			SetMaxPriorityFeePerGas(big.NewInt(10000000000)).
+			SetMaxFeePerGas(gasPrice).
+			SetMaxPriorityFeePerGas(gasPrice).
 			AddCall(counterContract, big.NewInt(0), incrementSelector).
 			Build()
 
@@ -510,8 +515,8 @@ func TestIntegration_ExpiringNonces(t *testing.T) {
 			SetValidAfter(validAfter).
 			SetValidBefore(validBefore).
 			SetGas(300000).
-			SetMaxFeePerGas(big.NewInt(10000000000)).
-			SetMaxPriorityFeePerGas(big.NewInt(10000000000)).
+			SetMaxFeePerGas(gasPrice).
+			SetMaxPriorityFeePerGas(gasPrice).
 			AddCall(counterContract, big.NewInt(0), incrementSelector).
 			Build()
 
@@ -538,6 +543,7 @@ func TestIntegration_SponsoredTransaction(t *testing.T) {
 	ctx := context.Background()
 	rpcClient := client.New(rpcURL)
 	cid := getChainID(t, rpcClient)
+	gasPrice := getGasPrice(t, rpcClient)
 
 	sender := createAndFundSigner(t, rpcClient)
 	sponsor := createAndFundSigner(t, rpcClient)
@@ -550,8 +556,8 @@ func TestIntegration_SponsoredTransaction(t *testing.T) {
 		SetNonce(0).
 		SetNonceKey(big.NewInt(200)). // Use unique nonce key
 		SetGas(300000).
-		SetMaxFeePerGas(big.NewInt(10000000000)).
-		SetMaxPriorityFeePerGas(big.NewInt(10000000000)).
+		SetMaxFeePerGas(gasPrice).
+		SetMaxPriorityFeePerGas(gasPrice).
 		AddCall(counterContract, big.NewInt(0), incrementSelector).
 		Build()
 
@@ -702,6 +708,7 @@ func TestIntegration_BatchTransactions(t *testing.T) {
 	ctx := context.Background()
 	rpcClient := client.New(rpcURL)
 	cid := getChainID(t, rpcClient)
+	gasPrice := getGasPrice(t, rpcClient)
 
 	sender := createAndFundSigner(t, rpcClient)
 
@@ -712,8 +719,8 @@ func TestIntegration_BatchTransactions(t *testing.T) {
 		tx := transaction.NewBuilder(big.NewInt(cid)).
 			SetNonce(nonce).
 			SetGas(300000).
-			SetMaxFeePerGas(big.NewInt(10000000000)).
-			SetMaxPriorityFeePerGas(big.NewInt(10000000000)).
+			SetMaxFeePerGas(gasPrice).
+			SetMaxPriorityFeePerGas(gasPrice).
 			AddCall(counterContract, big.NewInt(0), incrementSelector).
 			AddCall(counterContract, big.NewInt(0), incrementSelector).
 			Build()
@@ -742,8 +749,8 @@ func TestIntegration_BatchTransactions(t *testing.T) {
 		tx := transaction.NewBuilder(big.NewInt(cid)).
 			SetNonce(nonce).
 			SetGas(300000).
-			SetMaxFeePerGas(big.NewInt(10000000000)).
-			SetMaxPriorityFeePerGas(big.NewInt(10000000000)).
+			SetMaxFeePerGas(gasPrice).
+			SetMaxPriorityFeePerGas(gasPrice).
 			AddCall(counterContract, big.NewInt(0), incrementSelector).
 			AddCall(counterContract, big.NewInt(0), incrementSelector).
 			AddCall(counterContract, big.NewInt(0), incrementSelector).
@@ -772,6 +779,7 @@ func TestIntegration_SetUserFeeToken(t *testing.T) {
 	ctx := context.Background()
 	rpcClient := client.New(rpcURL)
 	cid := getChainID(t, rpcClient)
+	gasPrice := getGasPrice(t, rpcClient)
 
 	sender := createAndFundSigner(t, rpcClient)
 
@@ -783,9 +791,9 @@ func TestIntegration_SetUserFeeToken(t *testing.T) {
 
 		tx := transaction.NewBuilder(big.NewInt(cid)).
 			SetNonce(nonce).
-			SetGas(300000).
-			SetMaxFeePerGas(big.NewInt(10000000000)).
-			SetMaxPriorityFeePerGas(big.NewInt(10000000000)).
+			SetGas(600000).
+			SetMaxFeePerGas(gasPrice).
+			SetMaxPriorityFeePerGas(gasPrice).
 			AddCall(feeController, big.NewInt(0), calldata).
 			Build()
 
@@ -814,9 +822,9 @@ func TestIntegration_SetUserFeeToken(t *testing.T) {
 
 		tx := transaction.NewBuilder(big.NewInt(cid)).
 			SetNonce(nonce).
-			SetGas(300000).
-			SetMaxFeePerGas(big.NewInt(10000000000)).
-			SetMaxPriorityFeePerGas(big.NewInt(10000000000)).
+			SetGas(600000).
+			SetMaxFeePerGas(gasPrice).
+			SetMaxPriorityFeePerGas(gasPrice).
 			AddCall(feeController, big.NewInt(0), calldata).
 			Build()
 
