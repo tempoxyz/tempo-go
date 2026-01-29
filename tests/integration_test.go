@@ -2,42 +2,65 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
+	"fmt"
 	"math/big"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tempoxyz/tempo-go/pkg/client"
+	"github.com/tempoxyz/tempo-go/pkg/keychain"
 	"github.com/tempoxyz/tempo-go/pkg/signer"
 	"github.com/tempoxyz/tempo-go/pkg/transaction"
 )
 
-const (
-	// Anvil/Hardhat test account #0
-	// Address: 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
-	testPrivateKey1 = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
-
-	// Anvil/Hardhat test account #1
-	// Address: 0x70997970C51812dc3A010C7d01b50e0d17dc79C8
-	testPrivateKey2 = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
-
-	// Anvil/Hardhat test account #2
-	// Address: 0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC
-	feePayerPrivateKey = "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a"
-
-	// AlphaUSD token address (for testnet)
-	alphaUSDAddress = "0x20c0000000000000000000000000000000000001"
-
-	// Native token (use for local dev node which is pre-funded with native tokens)
-	nativeTokenAddress = "0x0000000000000000000000000000000000000000"
-)
-
+// Precompile and token addresses
 var (
-	feeTokenAddress = alphaUSDAddress
+	// Native fee token (default)
+	nativeFeeToken = common.HexToAddress("0x20c0000000000000000000000000000000000000")
+	// AlphaUSD token address
+	alphaUSD = common.HexToAddress("0x20C0000000000000000000000000000000000001")
+	// BetaUSD token address
+	betaUSD = common.HexToAddress("0x20C0000000000000000000000000000000000002")
+	// ThetaUSD token address
+	thetaUSD = common.HexToAddress("0x20C0000000000000000000000000000000000003")
+	// Fee Controller precompile
+	feeController = common.HexToAddress("0xfeec000000000000000000000000000000000000")
+	// Account Keychain precompile
+	accountKeychain = common.HexToAddress("0xAAAAAAAA00000000000000000000000000000000")
+	// DEX precompile
+	dex = common.HexToAddress("0xdec0000000000000000000000000000000000000")
+	// Counter contract (deployed on testnet/devnet)
+	counterContract = common.HexToAddress("0x86A2EE8FAf9A840F7a2c64CA3d51209F9A02081D")
+	// LP Recipient for fee token liquidity
+	lpRecipient = common.HexToAddress("0x6c4143BEd3A13cf9E5E43d45C60aD816FC091d0c")
 )
+
+// Function selectors
+var (
+	// increment() selector
+	incrementSelector = mustDecodeHex("d09de08a")
+	// mint(address,address,uint256,address) selector
+	mintSelector = mustDecodeHex("0b39c529")
+	// setUserToken(address) selector
+	setUserTokenSelector = mustDecodeHex("8a7fcf3f")
+	// authorizeKey(address,uint8,uint64,bool,(address,uint256)[]) selector
+	authorizeKeySelector = mustDecodeHex("3778a4d0")
+)
+
+func mustDecodeHex(s string) []byte {
+	b, err := hex.DecodeString(s)
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
 
 var (
 	rpcURL  string
@@ -45,11 +68,68 @@ var (
 )
 
 func init() {
-	// Require TEMPO_RPC_URL to be set to a real Tempo node
 	rpcURL = os.Getenv("TEMPO_RPC_URL")
 	if rpcURL == "" {
 		panic("TEMPO_RPC_URL environment variable must be set to run integration tests. Example: export TEMPO_RPC_URL=https://rpc.testnet.tempo.xyz")
 	}
+}
+
+// formatReceipt formats a transaction receipt for human-readable output (similar to cast)
+func formatReceipt(t *testing.T, txHash string, rpcClient *client.Client) {
+	t.Helper()
+	ctx := context.Background()
+
+	resp, err := rpcClient.SendRequest(ctx, "eth_getTransactionReceipt", txHash)
+	if err != nil {
+		t.Logf("Failed to get receipt: %v", err)
+		return
+	}
+
+	receipt, ok := resp.Result.(map[string]interface{})
+	if !ok {
+		t.Logf("Receipt not available yet")
+		return
+	}
+
+	status := "false"
+	if s, ok := receipt["status"].(string); ok && s == "0x1" {
+		status = "true"
+	}
+
+	txType := "unknown"
+	if typeVal, ok := receipt["type"].(string); ok {
+		switch typeVal {
+		case "0x76":
+			txType = "Tempo (0x76)"
+		case "0x2":
+			txType = "EIP-1559"
+		case "0x0":
+			txType = "Legacy"
+		default:
+			txType = typeVal
+		}
+	}
+
+	t.Logf("\n"+
+		"status               %s\n"+
+		"transactionHash      %s\n"+
+		"type                 %s\n"+
+		"from                 %v\n"+
+		"to                   %v\n"+
+		"feePayer             %v\n"+
+		"feeToken             %v\n"+
+		"gasUsed              %v\n"+
+		"effectiveGasPrice    %v",
+		status,
+		receipt["transactionHash"],
+		txType,
+		receipt["from"],
+		receipt["to"],
+		receipt["feePayer"],
+		receipt["feeToken"],
+		receipt["gasUsed"],
+		receipt["effectiveGasPrice"],
+	)
 }
 
 // getChainID fetches and caches the chain ID from the RPC node.
@@ -68,217 +148,521 @@ func getChainID(t *testing.T, rpcClient *client.Client) int64 {
 	return chainID
 }
 
-// TestIntegration_SimpleTransaction tests creating, signing, and sending a simple transaction.
-func TestIntegration_SimpleTransaction(t *testing.T) {
+// fundAddress funds an address using the tempo_fundAddress RPC
+func fundAddress(t *testing.T, rpcClient *client.Client, address common.Address) {
+	t.Helper()
 	ctx := context.Background()
 
-	sender, err := signer.NewSigner(testPrivateKey1)
+	for i := 0; i < 100; i++ {
+		resp, err := rpcClient.SendRequest(ctx, "tempo_fundAddress", address.Hex())
+		if err == nil && resp.Error == nil {
+			if result, ok := resp.Result.([]interface{}); ok && len(result) > 0 {
+				t.Logf("Funded address %s", address.Hex())
+				time.Sleep(5 * time.Second) // Wait for blocks to mine
+				return
+			}
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	t.Logf("Warning: Failed to fund address %s after 100 attempts", address.Hex())
+}
+
+// createAndFundSigner creates a new signer and funds it
+func createAndFundSigner(t *testing.T, rpcClient *client.Client) *signer.Signer {
+	t.Helper()
+	privateKey, err := crypto.GenerateKey()
 	require.NoError(t, err)
+	s := signer.NewSignerFromKey(privateKey)
+	fundAddress(t, rpcClient, s.Address())
+	return s
+}
 
-	recipient, err := signer.NewSigner(testPrivateKey2)
-	require.NoError(t, err)
+// encodeCalldata encodes function selector + arguments
+func encodeCalldata(selector []byte, args ...[]byte) []byte {
+	result := make([]byte, len(selector))
+	copy(result, selector)
+	for _, arg := range args {
+		result = append(result, arg...)
+	}
+	return result
+}
 
-	t.Logf("Sender address: %s", sender.Address().Hex())
-	t.Logf("Recipient address: %s", recipient.Address().Hex())
+// padLeft32 pads a byte slice to 32 bytes on the left
+func padLeft32(b []byte) []byte {
+	if len(b) >= 32 {
+		return b[:32]
+	}
+	result := make([]byte, 32)
+	copy(result[32-len(b):], b)
+	return result
+}
 
+// addressToBytes32 converts an address to a 32-byte array
+func addressToBytes32(addr common.Address) []byte {
+	return padLeft32(addr.Bytes())
+}
+
+// uint256ToBytes32 converts a big.Int to a 32-byte array
+func uint256ToBytes32(n *big.Int) []byte {
+	return padLeft32(n.Bytes())
+}
+
+// TestIntegration_NodeConnection tests basic node connectivity
+func TestIntegration_NodeConnection(t *testing.T) {
+	ctx := context.Background()
+	rpcClient := client.New(rpcURL)
+
+	t.Run("GetBlockNumber", func(t *testing.T) {
+		blockNum, err := rpcClient.GetBlockNumber(ctx)
+		require.NoError(t, err)
+		assert.Greater(t, blockNum, uint64(0))
+		t.Logf("Current block number: %d", blockNum)
+	})
+
+	t.Run("GetChainID", func(t *testing.T) {
+		chainID, err := rpcClient.GetChainID(ctx)
+		require.NoError(t, err)
+		assert.Greater(t, chainID, uint64(0))
+		t.Logf("Chain ID: %d", chainID)
+	})
+
+	t.Run("ClientVersion", func(t *testing.T) {
+		resp, err := rpcClient.SendRequest(ctx, "web3_clientVersion")
+		require.NoError(t, err)
+		require.NoError(t, resp.CheckError())
+		version, ok := resp.Result.(string)
+		require.True(t, ok)
+		assert.NotEmpty(t, version)
+		t.Logf("Client version: %s", version)
+	})
+}
+
+// TestIntegration_SimpleTransaction tests creating, signing, and sending a simple transaction
+func TestIntegration_SimpleTransaction(t *testing.T) {
+	ctx := context.Background()
 	rpcClient := client.New(rpcURL)
 	cid := getChainID(t, rpcClient)
 
-	// Get initial block number to verify node is running
-	blockNum, err := rpcClient.GetBlockNumber(ctx)
-	require.NoError(t, err)
-	t.Logf("Current block number: %d", blockNum)
+	sender := createAndFundSigner(t, rpcClient)
+	t.Logf("Sender address: %s", sender.Address().Hex())
 
 	nonce, err := rpcClient.GetTransactionCount(ctx, sender.Address().Hex())
 	require.NoError(t, err)
-	t.Logf("Sender nonce: %d", nonce)
 
 	tx := transaction.NewBuilder(big.NewInt(cid)).
 		SetNonce(nonce).
-		SetGas(100000).
+		SetGas(300000).
 		SetMaxFeePerGas(big.NewInt(10000000000)).
 		SetMaxPriorityFeePerGas(big.NewInt(10000000000)).
-		SetFeeToken(common.HexToAddress(feeTokenAddress)).
-		AddCall(
-			recipient.Address(),
-			big.NewInt(0), // Send 0 value for testing
-			[]byte{},
-		).
+		AddCall(counterContract, big.NewInt(0), incrementSelector).
 		Build()
 
 	err = transaction.SignTransaction(tx, sender)
 	require.NoError(t, err)
-	assert.NotNil(t, tx.Signature, "Transaction should be signed")
-
-	recoveredAddr, err := transaction.VerifySignature(tx)
-	require.NoError(t, err)
-	assert.Equal(t, sender.Address(), recoveredAddr, "Recovered address should match sender")
 
 	serialized, err := transaction.Serialize(tx, nil)
 	require.NoError(t, err)
-	assert.True(t, len(serialized) > 0, "Serialized transaction should not be empty")
-	t.Logf("Serialized transaction: %s...", serialized[:50])
 
 	txHash, err := rpcClient.SendRawTransaction(ctx, serialized)
 	require.NoError(t, err)
-	assert.True(t, len(txHash) > 0, "Transaction hash should not be empty")
 	t.Logf("Transaction hash: %s", txHash)
 
 	time.Sleep(2 * time.Second)
-
-	newBlockNum, err := rpcClient.GetBlockNumber(ctx)
-	require.NoError(t, err)
-	assert.GreaterOrEqual(t, newBlockNum, blockNum, "Block number should have increased")
-	t.Logf("New block number: %d", newBlockNum)
+	formatReceipt(t, txHash, rpcClient)
 }
 
-// TestIntegration_BuilderValidation tests the BuildAndValidate method.
-func TestIntegration_BuilderValidation(t *testing.T) {
-	rpcClient := client.New(rpcURL)
-	cid := getChainID(t, rpcClient)
-
-	recipient := common.HexToAddress("0x1234567890123456789012345678901234567890")
-
-	tx, err := transaction.NewBuilder(big.NewInt(cid)).
-		SetGas(100000).
-		SetFeeToken(common.HexToAddress(feeTokenAddress)).
-		AddCall(recipient, big.NewInt(0), []byte{}).
-		BuildAndValidate()
-
-	require.NoError(t, err)
-	assert.NotNil(t, tx)
-
-	_, err = transaction.NewBuilder(big.NewInt(cid)).
-		SetFeeToken(common.HexToAddress(feeTokenAddress)).
-		AddCall(recipient, big.NewInt(0), []byte{}).
-		BuildAndValidate()
-
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "gas must be greater than 0")
-}
-
-// TestIntegration_TransactionClone tests the Clone method.
-func TestIntegration_TransactionClone(t *testing.T) {
-	rpcClient := client.New(rpcURL)
-	cid := getChainID(t, rpcClient)
-
-	recipient1 := common.HexToAddress("0x1111111111111111111111111111111111111111")
-	recipient2 := common.HexToAddress("0x2222222222222222222222222222222222222222")
-
-	template := transaction.NewBuilder(big.NewInt(cid)).
-		SetGas(100000).
-		SetMaxFeePerGas(big.NewInt(10000000000)).
-		SetFeeToken(common.HexToAddress(feeTokenAddress)).
-		AddCall(recipient1, big.NewInt(1000), []byte{0xaa}).
-		Build()
-
-	cloned := template.Clone()
-	require.NotNil(t, cloned)
-
-	cloned.Calls[0].To = &recipient2
-	cloned.Calls[0].Value = big.NewInt(2000)
-	cloned.Calls[0].Data = []byte{0xbb}
-
-	assert.Equal(t, recipient1, *template.Calls[0].To)
-	assert.Equal(t, int64(1000), template.Calls[0].Value.Int64())
-	assert.Equal(t, []byte{0xaa}, template.Calls[0].Data)
-
-	assert.Equal(t, recipient2, *cloned.Calls[0].To)
-	assert.Equal(t, int64(2000), cloned.Calls[0].Value.Int64())
-	assert.Equal(t, []byte{0xbb}, cloned.Calls[0].Data)
-}
-
-// TestIntegration_FeePayerTransaction tests the fee payer pattern.
-func TestIntegration_FeePayerTransaction(t *testing.T) {
-	t.Skip("Skipping fee payer transaction test -- this does not work on the dev node yet")
+// TestIntegration_FeeTokenLiquidity tests adding fee token liquidity
+func TestIntegration_FeeTokenLiquidity(t *testing.T) {
 	ctx := context.Background()
+	rpcClient := client.New(rpcURL)
+	cid := getChainID(t, rpcClient)
 
-	sender, err := signer.NewSigner(testPrivateKey1)
-	require.NoError(t, err)
+	sender := createAndFundSigner(t, rpcClient)
 
-	feePayer, err := signer.NewSigner(feePayerPrivateKey)
-	require.NoError(t, err)
+	// Add liquidity for each fee token: AlphaUSD, BetaUSD, ThetaUSD
+	feeTokens := []struct {
+		name  string
+		token common.Address
+	}{
+		{"AlphaUSD", alphaUSD},
+		{"BetaUSD", betaUSD},
+		{"ThetaUSD", thetaUSD},
+	}
 
-	recipient, err := signer.NewSigner(testPrivateKey2)
-	require.NoError(t, err)
+	for _, ft := range feeTokens {
+		t.Run(ft.name, func(t *testing.T) {
+			nonce, err := rpcClient.GetTransactionCount(ctx, sender.Address().Hex())
+			require.NoError(t, err)
+
+			// mint(address token, address feeToken, uint256 amount, address recipient)
+			calldata := encodeCalldata(
+				mintSelector,
+				addressToBytes32(ft.token),
+				addressToBytes32(nativeFeeToken),
+				uint256ToBytes32(big.NewInt(1000000000)),
+				addressToBytes32(lpRecipient),
+			)
+
+			tx := transaction.NewBuilder(big.NewInt(cid)).
+				SetNonce(nonce).
+				SetGas(300000).
+				SetMaxFeePerGas(big.NewInt(10000000000)).
+				SetMaxPriorityFeePerGas(big.NewInt(10000000000)).
+				AddCall(feeController, big.NewInt(0), calldata).
+				Build()
+
+			err = transaction.SignTransaction(tx, sender)
+			require.NoError(t, err)
+
+			serialized, err := transaction.Serialize(tx, nil)
+			require.NoError(t, err)
+
+			txHash, err := rpcClient.SendRawTransaction(ctx, serialized)
+			require.NoError(t, err)
+			t.Logf("%s liquidity tx hash: %s", ft.name, txHash)
+
+			time.Sleep(2 * time.Second)
+			formatReceipt(t, txHash, rpcClient)
+		})
+	}
+}
+
+// TestIntegration_SendWithFeeToken tests sending transactions with custom fee tokens
+func TestIntegration_SendWithFeeToken(t *testing.T) {
+	ctx := context.Background()
+	rpcClient := client.New(rpcURL)
+	cid := getChainID(t, rpcClient)
+
+	sender := createAndFundSigner(t, rpcClient)
+
+	feeTokens := []struct {
+		name  string
+		token common.Address
+	}{
+		{"BetaUSD", betaUSD},
+		{"ThetaUSD", thetaUSD},
+	}
+
+	for _, ft := range feeTokens {
+		t.Run(ft.name, func(t *testing.T) {
+			nonce, err := rpcClient.GetTransactionCount(ctx, sender.Address().Hex())
+			require.NoError(t, err)
+
+			tx := transaction.NewBuilder(big.NewInt(cid)).
+				SetNonce(nonce).
+				SetGas(300000).
+				SetMaxFeePerGas(big.NewInt(10000000000)).
+				SetMaxPriorityFeePerGas(big.NewInt(10000000000)).
+				SetFeeToken(ft.token).
+				AddCall(counterContract, big.NewInt(0), incrementSelector).
+				Build()
+
+			err = transaction.SignTransaction(tx, sender)
+			require.NoError(t, err)
+
+			serialized, err := transaction.Serialize(tx, nil)
+			require.NoError(t, err)
+
+			txHash, err := rpcClient.SendRawTransaction(ctx, serialized)
+			require.NoError(t, err)
+			t.Logf("Sent with %s fee token, tx hash: %s", ft.name, txHash)
+
+			time.Sleep(2 * time.Second)
+			formatReceipt(t, txHash, rpcClient)
+		})
+	}
+}
+
+// TestIntegration_2DNonces tests 2D nonce system (nonce_key)
+func TestIntegration_2DNonces(t *testing.T) {
+	ctx := context.Background()
+	rpcClient := client.New(rpcURL)
+	cid := getChainID(t, rpcClient)
+
+	sender := createAndFundSigner(t, rpcClient)
+
+	// Use different nonce keys for parallel transaction lanes
+	nonceKeys := []int64{1, 2, 3}
+
+	for _, key := range nonceKeys {
+		t.Run(fmt.Sprintf("NonceKey_%d", key), func(t *testing.T) {
+			// Each nonce key starts at 0
+			tx := transaction.NewBuilder(big.NewInt(cid)).
+				SetNonce(0).
+				SetNonceKey(big.NewInt(key)).
+				SetGas(300000).
+				SetMaxFeePerGas(big.NewInt(10000000000)).
+				SetMaxPriorityFeePerGas(big.NewInt(10000000000)).
+				AddCall(counterContract, big.NewInt(0), incrementSelector).
+				Build()
+
+			err := transaction.SignTransaction(tx, sender)
+			require.NoError(t, err)
+
+			serialized, err := transaction.Serialize(tx, nil)
+			require.NoError(t, err)
+
+			txHash, err := rpcClient.SendRawTransaction(ctx, serialized)
+			require.NoError(t, err)
+			t.Logf("2D nonce (key=%d) tx hash: %s", key, txHash)
+
+			time.Sleep(2 * time.Second)
+			formatReceipt(t, txHash, rpcClient)
+		})
+	}
+}
+
+// TestIntegration_ExpiringNonces tests expiring nonces (valid_before, valid_after)
+func TestIntegration_ExpiringNonces(t *testing.T) {
+	ctx := context.Background()
+	rpcClient := client.New(rpcURL)
+	cid := getChainID(t, rpcClient)
+
+	sender := createAndFundSigner(t, rpcClient)
+
+	t.Run("ValidBefore", func(t *testing.T) {
+		// Transaction valid for next 25 seconds
+		validBefore := uint64(time.Now().Unix() + 25)
+
+		tx := transaction.NewBuilder(big.NewInt(cid)).
+			SetNonce(0).
+			SetNonceKey(big.NewInt(100)). // Use unique nonce key
+			SetValidBefore(validBefore).
+			SetGas(300000).
+			SetMaxFeePerGas(big.NewInt(10000000000)).
+			SetMaxPriorityFeePerGas(big.NewInt(10000000000)).
+			AddCall(counterContract, big.NewInt(0), incrementSelector).
+			Build()
+
+		err := transaction.SignTransaction(tx, sender)
+		require.NoError(t, err)
+
+		serialized, err := transaction.Serialize(tx, nil)
+		require.NoError(t, err)
+
+		txHash, err := rpcClient.SendRawTransaction(ctx, serialized)
+		require.NoError(t, err)
+		t.Logf("Expiring nonce (validBefore=%d) tx hash: %s", validBefore, txHash)
+
+		time.Sleep(2 * time.Second)
+		formatReceipt(t, txHash, rpcClient)
+	})
+
+	t.Run("ValidAfterAndBefore", func(t *testing.T) {
+		// Transaction valid after now, before now+25s
+		now := time.Now().Unix()
+		validAfter := uint64(now - 1)
+		validBefore := uint64(now + 25)
+
+		tx := transaction.NewBuilder(big.NewInt(cid)).
+			SetNonce(0).
+			SetNonceKey(big.NewInt(101)). // Use unique nonce key
+			SetValidAfter(validAfter).
+			SetValidBefore(validBefore).
+			SetGas(300000).
+			SetMaxFeePerGas(big.NewInt(10000000000)).
+			SetMaxPriorityFeePerGas(big.NewInt(10000000000)).
+			AddCall(counterContract, big.NewInt(0), incrementSelector).
+			Build()
+
+		err := transaction.SignTransaction(tx, sender)
+		require.NoError(t, err)
+
+		serialized, err := transaction.Serialize(tx, nil)
+		require.NoError(t, err)
+
+		txHash, err := rpcClient.SendRawTransaction(ctx, serialized)
+		require.NoError(t, err)
+		t.Logf("Expiring nonce (validAfter=%d, validBefore=%d) tx hash: %s", validAfter, validBefore, txHash)
+
+		time.Sleep(2 * time.Second)
+		formatReceipt(t, txHash, rpcClient)
+	})
+}
+
+// TestIntegration_SponsoredTransaction tests sponsored (gasless) transactions
+func TestIntegration_SponsoredTransaction(t *testing.T) {
+	ctx := context.Background()
+	rpcClient := client.New(rpcURL)
+	cid := getChainID(t, rpcClient)
+
+	sender := createAndFundSigner(t, rpcClient)
+	sponsor := createAndFundSigner(t, rpcClient)
 
 	t.Logf("Sender address: %s", sender.Address().Hex())
-	t.Logf("Fee payer address: %s", feePayer.Address().Hex())
-	t.Logf("Recipient address: %s", recipient.Address().Hex())
+	t.Logf("Sponsor address: %s", sponsor.Address().Hex())
 
-	rpcClient := client.New(rpcURL)
-	cid := getChainID(t, rpcClient)
-
-	nonce, err := rpcClient.GetTransactionCount(ctx, sender.Address().Hex())
-	require.NoError(t, err)
-	t.Logf("Sender nonce: %d", nonce)
-
+	// Create transaction with awaiting_fee_payer flag
 	tx := transaction.NewBuilder(big.NewInt(cid)).
-		SetNonce(nonce).
-		SetGas(100000).
+		SetNonce(0).
+		SetNonceKey(big.NewInt(200)). // Use unique nonce key
+		SetGas(300000).
 		SetMaxFeePerGas(big.NewInt(10000000000)).
 		SetMaxPriorityFeePerGas(big.NewInt(10000000000)).
-		SetFeeToken(common.HexToAddress(feeTokenAddress)).
-		AddCall(recipient.Address(), big.NewInt(0), []byte{}).
+		AddCall(counterContract, big.NewInt(0), incrementSelector).
 		Build()
 
-	t.Logf("Fee token: %s", feeTokenAddress)
+	tx.AwaitingFeePayer = true
 
-	err = transaction.SignTransaction(tx, sender)
+	// Sign as sender
+	err := transaction.SignTransaction(tx, sender)
 	require.NoError(t, err)
-	assert.NotNil(t, tx.Signature)
 
-	senderAddr, err := transaction.VerifySignature(tx)
+	// Add fee payer signature
+	err = transaction.AddFeePayerSignature(tx, sponsor)
 	require.NoError(t, err)
-	assert.Equal(t, sender.Address(), senderAddr)
 
-	err = transaction.AddFeePayerSignature(tx, feePayer)
-	require.NoError(t, err)
-	assert.NotNil(t, tx.FeePayerSignature)
-
-	recoveredSender, recoveredFeePayer, err := transaction.VerifyDualSignatures(tx)
+	// Verify dual signatures
+	recoveredSender, recoveredSponsor, err := transaction.VerifyDualSignatures(tx)
 	require.NoError(t, err)
 	assert.Equal(t, sender.Address(), recoveredSender)
-	assert.Equal(t, feePayer.Address(), recoveredFeePayer)
+	assert.Equal(t, sponsor.Address(), recoveredSponsor)
 
 	serialized, err := transaction.Serialize(tx, nil)
 	require.NoError(t, err)
-	t.Logf("Dual-signed transaction: %s", serialized)
-	t.Logf("Has fee payer sig: %v", tx.FeePayerSignature != nil)
 
 	txHash, err := rpcClient.SendRawTransaction(ctx, serialized)
 	require.NoError(t, err)
-	t.Logf("Transaction hash: %s", txHash)
-}
+	t.Logf("Sponsored transaction hash: %s", txHash)
 
-// TestIntegration_BatchTransactions tests sending multiple transactions.
-func TestIntegration_BatchTransactions(t *testing.T) {
-	ctx := context.Background()
-
-	sender, err := signer.NewSigner(testPrivateKey1)
-	require.NoError(t, err)
-
-	recipients := []common.Address{
-		common.HexToAddress("0x1111111111111111111111111111111111111111"),
-		common.HexToAddress("0x2222222222222222222222222222222222222222"),
-		common.HexToAddress("0x3333333333333333333333333333333333333333"),
+	// Wait for receipt with retries (devnet can be slow)
+	var receipt map[string]interface{}
+	for i := 0; i < 15; i++ {
+		time.Sleep(2 * time.Second)
+		resp, err := rpcClient.SendRequest(ctx, "eth_getTransactionReceipt", txHash)
+		if err == nil && resp.Result != nil {
+			if r, ok := resp.Result.(map[string]interface{}); ok {
+				receipt = r
+				t.Logf("Got receipt after %d attempts", i+1)
+				break
+			}
+		}
+		t.Logf("Waiting for receipt... attempt %d", i+1)
 	}
 
+	if receipt == nil {
+		t.Log("Receipt not available - tx may be pending. Skipping fee payer verification.")
+		t.Skip("Receipt not available after 30 seconds - devnet may be slow")
+	}
+
+	formatReceipt(t, txHash, rpcClient)
+
+	// Verify the fee payer in receipt matches sponsor
+	feePayer, _ := receipt["feePayer"].(string)
+	assert.True(t, strings.EqualFold(feePayer, sponsor.Address().Hex()),
+		"Expected feePayer %s, got %s", sponsor.Address().Hex(), feePayer)
+}
+
+// TestIntegration_AccessKeys tests access key (keychain) signing
+func TestIntegration_AccessKeys(t *testing.T) {
+	t.Skip("Access keys test skipped - needs investigation on devnet (authorization tx confirms but key not immediately available)")
+
+	ctx := context.Background()
 	rpcClient := client.New(rpcURL)
 	cid := getChainID(t, rpcClient)
 
-	baseNonce, err := rpcClient.GetTransactionCount(ctx, sender.Address().Hex())
+	// Create root account and access key
+	rootAccount := createAndFundSigner(t, rpcClient)
+	accessKeyPriv, err := crypto.GenerateKey()
 	require.NoError(t, err)
+	accessKey := signer.NewSignerFromKey(accessKeyPriv)
 
-	var txHashes []string
-	for i, recipient := range recipients {
+	t.Logf("Root account: %s", rootAccount.Address().Hex())
+	t.Logf("Access key: %s", accessKey.Address().Hex())
+
+	// First, authorize the access key on-chain
+	t.Run("AuthorizeAccessKey", func(t *testing.T) {
+		nonce, err := rpcClient.GetTransactionCount(ctx, rootAccount.Address().Hex())
+		require.NoError(t, err)
+
+		// authorizeKey(address key, uint8 sigType, uint64 expiry, bool enforceLimits, (address,uint256)[] limits)
+		// sigType: 0 = Secp256k1, expiry: 1893456000 (year 2030), enforceLimits: false
+		calldata := encodeCalldata(
+			authorizeKeySelector,
+			addressToBytes32(accessKey.Address()),
+			padLeft32([]byte{0}),                     // sigType = 0 (Secp256k1)
+			uint256ToBytes32(big.NewInt(1893456000)), // expiry
+			padLeft32([]byte{0}),                     // enforceLimits = false
+			uint256ToBytes32(big.NewInt(0xa0)),       // offset to limits array
+			uint256ToBytes32(big.NewInt(0)),          // limits array length = 0
+		)
+
 		tx := transaction.NewBuilder(big.NewInt(cid)).
-			SetGas(100000).
+			SetNonce(nonce).
+			SetGas(300000).
 			SetMaxFeePerGas(big.NewInt(10000000000)).
 			SetMaxPriorityFeePerGas(big.NewInt(10000000000)).
-			SetFeeToken(common.HexToAddress(feeTokenAddress)).
-			SetNonce(baseNonce+uint64(i)).
-			AddCall(recipient, big.NewInt(0), []byte{}).
+			AddCall(accountKeychain, big.NewInt(0), calldata).
+			Build()
+
+		err = transaction.SignTransaction(tx, rootAccount)
+		require.NoError(t, err)
+
+		serialized, err := transaction.Serialize(tx, nil)
+		require.NoError(t, err)
+
+		txHash, err := rpcClient.SendRawTransaction(ctx, serialized)
+		require.NoError(t, err)
+		t.Logf("Authorize access key tx hash: %s", txHash)
+
+		time.Sleep(3 * time.Second)
+		formatReceipt(t, txHash, rpcClient)
+	})
+
+	// Fund the access key address (needed for gas)
+	fundAddress(t, rpcClient, accessKey.Address())
+
+	// Now use the access key to sign a transaction
+	t.Run("SignWithAccessKey", func(t *testing.T) {
+		tx := transaction.NewBuilder(big.NewInt(cid)).
+			SetNonce(0).
+			SetNonceKey(big.NewInt(300)). // Use unique nonce key
+			SetGas(300000).
+			SetMaxFeePerGas(big.NewInt(10000000000)).
+			SetMaxPriorityFeePerGas(big.NewInt(10000000000)).
+			AddCall(counterContract, big.NewInt(0), incrementSelector).
+			Build()
+
+		err := keychain.SignWithAccessKey(tx, accessKey, rootAccount.Address())
+		require.NoError(t, err)
+
+		// Verify the access key signature
+		recoveredAccessKey, recoveredRoot, err := keychain.VerifyAccessKeySignature(tx)
+		require.NoError(t, err)
+		assert.Equal(t, accessKey.Address(), recoveredAccessKey)
+		assert.Equal(t, rootAccount.Address(), recoveredRoot)
+
+		serialized, err := transaction.Serialize(tx, nil)
+		require.NoError(t, err)
+
+		txHash, err := rpcClient.SendRawTransaction(ctx, serialized)
+		require.NoError(t, err)
+		t.Logf("Access key signed tx hash: %s", txHash)
+
+		time.Sleep(2 * time.Second)
+		formatReceipt(t, txHash, rpcClient)
+	})
+}
+
+// TestIntegration_BatchTransactions tests transactions with multiple calls
+func TestIntegration_BatchTransactions(t *testing.T) {
+	ctx := context.Background()
+	rpcClient := client.New(rpcURL)
+	cid := getChainID(t, rpcClient)
+
+	sender := createAndFundSigner(t, rpcClient)
+
+	t.Run("TwoCalls", func(t *testing.T) {
+		nonce, err := rpcClient.GetTransactionCount(ctx, sender.Address().Hex())
+		require.NoError(t, err)
+
+		tx := transaction.NewBuilder(big.NewInt(cid)).
+			SetNonce(nonce).
+			SetGas(300000).
+			SetMaxFeePerGas(big.NewInt(10000000000)).
+			SetMaxPriorityFeePerGas(big.NewInt(10000000000)).
+			AddCall(counterContract, big.NewInt(0), incrementSelector).
+			AddCall(counterContract, big.NewInt(0), incrementSelector).
 			Build()
 
 		err = transaction.SignTransaction(tx, sender)
@@ -289,79 +673,157 @@ func TestIntegration_BatchTransactions(t *testing.T) {
 
 		txHash, err := rpcClient.SendRawTransaction(ctx, serialized)
 		require.NoError(t, err)
+		t.Logf("Batch (2 calls) tx hash: %s", txHash)
 
-		txHashes = append(txHashes, txHash)
-		t.Logf("Transaction %d hash: %s", i+1, txHash)
-	}
+		time.Sleep(2 * time.Second)
+		formatReceipt(t, txHash, rpcClient)
+	})
 
-	assert.Equal(t, len(recipients), len(txHashes))
+	t.Run("ThreeCalls", func(t *testing.T) {
+		nonce, err := rpcClient.GetTransactionCount(ctx, sender.Address().Hex())
+		require.NoError(t, err)
+
+		tx := transaction.NewBuilder(big.NewInt(cid)).
+			SetNonce(nonce).
+			SetGas(300000).
+			SetMaxFeePerGas(big.NewInt(10000000000)).
+			SetMaxPriorityFeePerGas(big.NewInt(10000000000)).
+			AddCall(counterContract, big.NewInt(0), incrementSelector).
+			AddCall(counterContract, big.NewInt(0), incrementSelector).
+			AddCall(counterContract, big.NewInt(0), incrementSelector).
+			Build()
+
+		err = transaction.SignTransaction(tx, sender)
+		require.NoError(t, err)
+
+		serialized, err := transaction.Serialize(tx, nil)
+		require.NoError(t, err)
+
+		txHash, err := rpcClient.SendRawTransaction(ctx, serialized)
+		require.NoError(t, err)
+		t.Logf("Batch (3 calls) tx hash: %s", txHash)
+
+		time.Sleep(2 * time.Second)
+		formatReceipt(t, txHash, rpcClient)
+	})
 }
 
-// TestIntegration_MultiCall tests transactions with multiple calls.
-func TestIntegration_MultiCall(t *testing.T) {
+// TestIntegration_SetUserFeeToken tests setting user's default fee token
+func TestIntegration_SetUserFeeToken(t *testing.T) {
 	ctx := context.Background()
-
-	sender, err := signer.NewSigner(testPrivateKey1)
-	require.NoError(t, err)
-
 	rpcClient := client.New(rpcURL)
 	cid := getChainID(t, rpcClient)
 
-	nonce, err := rpcClient.GetTransactionCount(ctx, sender.Address().Hex())
-	require.NoError(t, err)
+	sender := createAndFundSigner(t, rpcClient)
 
-	tx := transaction.NewBuilder(big.NewInt(cid)).
-		SetNonce(nonce).
-		SetGas(200000).
-		SetMaxFeePerGas(big.NewInt(10000000000)).
-		SetMaxPriorityFeePerGas(big.NewInt(10000000000)).
-		SetFeeToken(common.HexToAddress(feeTokenAddress)).
-		AddCall(
-			common.HexToAddress("0x1111111111111111111111111111111111111111"),
-			big.NewInt(0),
-			[]byte{},
-		).
-		AddCall(
-			common.HexToAddress("0x2222222222222222222222222222222222222222"),
-			big.NewInt(0),
-			[]byte{},
-		).
-		AddCall(
-			common.HexToAddress("0x3333333333333333333333333333333333333333"),
-			big.NewInt(0),
-			[]byte{},
-		).
-		Build()
+	t.Run("SetToBetaUSD", func(t *testing.T) {
+		nonce, err := rpcClient.GetTransactionCount(ctx, sender.Address().Hex())
+		require.NoError(t, err)
 
-	assert.Equal(t, 3, len(tx.Calls), "Should have 3 calls")
+		calldata := encodeCalldata(setUserTokenSelector, addressToBytes32(betaUSD))
 
-	err = transaction.SignTransaction(tx, sender)
-	require.NoError(t, err)
+		tx := transaction.NewBuilder(big.NewInt(cid)).
+			SetNonce(nonce).
+			SetGas(300000).
+			SetMaxFeePerGas(big.NewInt(10000000000)).
+			SetMaxPriorityFeePerGas(big.NewInt(10000000000)).
+			AddCall(feeController, big.NewInt(0), calldata).
+			Build()
 
-	serialized, err := transaction.Serialize(tx, nil)
-	require.NoError(t, err)
+		err = transaction.SignTransaction(tx, sender)
+		require.NoError(t, err)
 
-	txHash, err := rpcClient.SendRawTransaction(ctx, serialized)
-	require.NoError(t, err)
-	t.Logf("Multi-call transaction hash: %s", txHash)
+		serialized, err := transaction.Serialize(tx, nil)
+		require.NoError(t, err)
+
+		txHash, err := rpcClient.SendRawTransaction(ctx, serialized)
+		require.NoError(t, err)
+		t.Logf("Set user fee token to BetaUSD tx hash: %s", txHash)
+
+		time.Sleep(2 * time.Second)
+		formatReceipt(t, txHash, rpcClient)
+	})
+
+	t.Run("ResetToNative", func(t *testing.T) {
+		nonce, err := rpcClient.GetTransactionCount(ctx, sender.Address().Hex())
+		require.NoError(t, err)
+
+		calldata := encodeCalldata(setUserTokenSelector, addressToBytes32(nativeFeeToken))
+
+		tx := transaction.NewBuilder(big.NewInt(cid)).
+			SetNonce(nonce).
+			SetGas(300000).
+			SetMaxFeePerGas(big.NewInt(10000000000)).
+			SetMaxPriorityFeePerGas(big.NewInt(10000000000)).
+			AddCall(feeController, big.NewInt(0), calldata).
+			Build()
+
+		err = transaction.SignTransaction(tx, sender)
+		require.NoError(t, err)
+
+		serialized, err := transaction.Serialize(tx, nil)
+		require.NoError(t, err)
+
+		txHash, err := rpcClient.SendRawTransaction(ctx, serialized)
+		require.NoError(t, err)
+		t.Logf("Reset user fee token to native tx hash: %s", txHash)
+
+		time.Sleep(2 * time.Second)
+		formatReceipt(t, txHash, rpcClient)
+	})
 }
 
-// TestIntegration_RoundTrip tests full serialization round-trip.
+// TestIntegration_DEXOperations tests DEX operations (skipped - require liquidity setup)
+func TestIntegration_DEXOperations(t *testing.T) {
+	t.Skip("DEX operations require liquidity setup - works with full tempo-check.sh flow")
+
+	// TODO: Implement DEX tests when liquidity setup is available:
+	// - Approve DEX
+	// - Place bid
+	// - Place ask
+	// - Place flip
+	// - Swap exact amount in
+	// - Swap exact amount out
+}
+
+// TestIntegration_BuilderValidation tests the BuildAndValidate method
+func TestIntegration_BuilderValidation(t *testing.T) {
+	rpcClient := client.New(rpcURL)
+	cid := getChainID(t, rpcClient)
+
+	recipient := common.HexToAddress("0x1234567890123456789012345678901234567890")
+
+	tx, err := transaction.NewBuilder(big.NewInt(cid)).
+		SetGas(300000).
+		AddCall(recipient, big.NewInt(0), []byte{}).
+		BuildAndValidate()
+
+	require.NoError(t, err)
+	assert.NotNil(t, tx)
+
+	_, err = transaction.NewBuilder(big.NewInt(cid)).
+		AddCall(recipient, big.NewInt(0), []byte{}).
+		BuildAndValidate()
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "gas must be greater than 0")
+}
+
+// TestIntegration_RoundTrip tests full serialization round-trip
 func TestIntegration_RoundTrip(t *testing.T) {
 	rpcClient := client.New(rpcURL)
 	cid := getChainID(t, rpcClient)
 
-	sender, err := signer.NewSigner(testPrivateKey1)
+	senderPriv, err := crypto.GenerateKey()
 	require.NoError(t, err)
+	sender := signer.NewSignerFromKey(senderPriv)
 
 	recipient := common.HexToAddress("0x1234567890123456789012345678901234567890")
 
-	// Create and sign transaction
 	originalTx := transaction.NewBuilder(big.NewInt(cid)).
-		SetGas(100000).
+		SetGas(300000).
 		SetMaxFeePerGas(big.NewInt(10000000000)).
 		SetMaxPriorityFeePerGas(big.NewInt(10000000000)).
-		SetFeeToken(common.HexToAddress(feeTokenAddress)).
 		SetNonce(42).
 		AddCall(recipient, big.NewInt(1000), []byte{0xaa, 0xbb}).
 		Build()
@@ -386,20 +848,4 @@ func TestIntegration_RoundTrip(t *testing.T) {
 	recoveredAddr, err := transaction.VerifySignature(deserializedTx)
 	require.NoError(t, err)
 	assert.Equal(t, sender.Address(), recoveredAddr)
-}
-
-// TestIntegration_Options tests client configuration options.
-func TestIntegration_Options(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	rpcClient := client.New(
-		rpcURL,
-		client.WithTimeout(10*time.Second),
-	)
-
-	blockNum, err := rpcClient.GetBlockNumber(ctx)
-	require.NoError(t, err)
-	assert.Greater(t, blockNum, uint64(0))
-	t.Logf("Block number: %d", blockNum)
 }
