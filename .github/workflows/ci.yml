@@ -79,8 +79,8 @@ jobs:
         docker compose logs
         exit 1
 
-    - name: Run integration tests
-      run: make integration
+    - name: Run integration tests (offline only - localnet lacks tempo_fundAddress)
+      run: go test -v -run "TestIntegration_NodeConnection|TestIntegration_BuilderValidation|TestIntegration_RoundTrip" -timeout=5m ./tests
       env:
         TEMPO_RPC_URL: http://localhost:8545
 
