@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -51,7 +52,7 @@ var (
 	// setUserToken(address) selector
 	setUserTokenSelector = mustDecodeHex("8a7fcf3f")
 	// authorizeKey(address,uint8,uint64,bool,(address,uint256)[]) selector
-	authorizeKeySelector = mustDecodeHex("3778a4d0")
+	authorizeKeySelector = mustDecodeHex("54063a55")
 )
 
 func mustDecodeHex(s string) []byte {
@@ -205,6 +206,30 @@ func addressToBytes32(addr common.Address) []byte {
 // uint256ToBytes32 converts a big.Int to a 32-byte array
 func uint256ToBytes32(n *big.Int) []byte {
 	return padLeft32(n.Bytes())
+}
+
+// getGasPrice fetches the current gas price from the network
+func getGasPrice(t *testing.T, rpcClient *client.Client) *big.Int {
+	t.Helper()
+	ctx := context.Background()
+	resp, err := rpcClient.SendRequest(ctx, "eth_gasPrice")
+	if err != nil {
+		// Fallback to high gas price
+		return big.NewInt(50000000000) // 50 gwei
+	}
+	if resp.Error != nil {
+		return big.NewInt(50000000000)
+	}
+	gasPriceHex, ok := resp.Result.(string)
+	if !ok {
+		return big.NewInt(50000000000)
+	}
+	gasPrice := new(big.Int)
+	gasPrice.SetString(strings.TrimPrefix(gasPriceHex, "0x"), 16)
+	// Add 50% buffer for priority
+	gasPrice.Mul(gasPrice, big.NewInt(3))
+	gasPrice.Div(gasPrice, big.NewInt(2))
+	return gasPrice
 }
 
 // TestIntegration_NodeConnection tests basic node connectivity
@@ -556,7 +581,6 @@ func TestIntegration_SponsoredTransaction(t *testing.T) {
 
 // TestIntegration_AccessKeys tests access key (keychain) signing
 func TestIntegration_AccessKeys(t *testing.T) {
-	t.Skip("Access keys test skipped - needs investigation on devnet (authorization tx confirms but key not immediately available)")
 
 	ctx := context.Background()
 	rpcClient := client.New(rpcURL)
@@ -571,7 +595,11 @@ func TestIntegration_AccessKeys(t *testing.T) {
 	t.Logf("Root account: %s", rootAccount.Address().Hex())
 	t.Logf("Access key: %s", accessKey.Address().Hex())
 
-	// First, authorize the access key on-chain
+	// Get gas price for transactions
+	gasPrice := getGasPrice(t, rpcClient)
+	t.Logf("Using gas price: %s", gasPrice.String())
+
+	// First, authorize the access key on-chain using EIP-1559 tx (not Tempo tx)
 	t.Run("AuthorizeAccessKey", func(t *testing.T) {
 		nonce, err := rpcClient.GetTransactionCount(ctx, rootAccount.Address().Hex())
 		require.NoError(t, err)
@@ -588,39 +616,64 @@ func TestIntegration_AccessKeys(t *testing.T) {
 			uint256ToBytes32(big.NewInt(0)),          // limits array length = 0
 		)
 
-		tx := transaction.NewBuilder(big.NewInt(cid)).
-			SetNonce(nonce).
-			SetGas(300000).
-			SetMaxFeePerGas(big.NewInt(10000000000)).
-			SetMaxPriorityFeePerGas(big.NewInt(10000000000)).
-			AddCall(accountKeychain, big.NewInt(0), calldata).
-			Build()
+		// Use standard EIP-1559 transaction for authorization
+		// Gas estimate is ~532000, use 600000 for safety
+		eip1559Tx := types.NewTx(&types.DynamicFeeTx{
+			ChainID:   big.NewInt(cid),
+			Nonce:     nonce,
+			GasTipCap: gasPrice,
+			GasFeeCap: gasPrice,
+			Gas:       600000,
+			To:        &accountKeychain,
+			Value:     big.NewInt(0),
+			Data:      calldata,
+		})
 
-		err = transaction.SignTransaction(tx, rootAccount)
+		signedTx, err := types.SignTx(eip1559Tx, types.NewLondonSigner(big.NewInt(cid)), rootAccount.PrivateKey())
 		require.NoError(t, err)
 
-		serialized, err := transaction.Serialize(tx, nil)
+		txBytes, err := signedTx.MarshalBinary()
 		require.NoError(t, err)
 
-		txHash, err := rpcClient.SendRawTransaction(ctx, serialized)
+		txHash, err := rpcClient.SendRawTransaction(ctx, "0x"+hex.EncodeToString(txBytes))
 		require.NoError(t, err)
 		t.Logf("Authorize access key tx hash: %s", txHash)
 
-		time.Sleep(3 * time.Second)
+		// Wait for receipt to confirm authorization succeeded
+		var receipt map[string]interface{}
+		for i := 0; i < 15; i++ {
+			time.Sleep(2 * time.Second)
+			resp, err := rpcClient.SendRequest(ctx, "eth_getTransactionReceipt", txHash)
+			if err == nil && resp.Result != nil {
+				if r, ok := resp.Result.(map[string]interface{}); ok {
+					receipt = r
+					t.Logf("Got receipt after %d attempts", i+1)
+					break
+				}
+			}
+			t.Logf("Waiting for authorization receipt... attempt %d", i+1)
+		}
+		require.NotNil(t, receipt, "Failed to get authorization receipt")
+
+		// Check if authorization succeeded
+		status, _ := receipt["status"].(string)
+		require.Equal(t, "0x1", status, "Authorization tx failed")
+		t.Logf("Authorization tx succeeded")
 		formatReceipt(t, txHash, rpcClient)
 	})
 
-	// Fund the access key address (needed for gas)
-	fundAddress(t, rpcClient, accessKey.Address())
+	// Access key doesn't need funding - it signs on behalf of root account
+	// But we wait a bit more to ensure authorization is fully propagated
+	time.Sleep(3 * time.Second)
 
 	// Now use the access key to sign a transaction
 	t.Run("SignWithAccessKey", func(t *testing.T) {
 		tx := transaction.NewBuilder(big.NewInt(cid)).
 			SetNonce(0).
 			SetNonceKey(big.NewInt(300)). // Use unique nonce key
-			SetGas(300000).
-			SetMaxFeePerGas(big.NewInt(10000000000)).
-			SetMaxPriorityFeePerGas(big.NewInt(10000000000)).
+			SetGas(500000).
+			SetMaxFeePerGas(gasPrice).
+			SetMaxPriorityFeePerGas(gasPrice).
 			AddCall(counterContract, big.NewInt(0), incrementSelector).
 			Build()
 
