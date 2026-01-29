@@ -139,10 +139,11 @@ func (s *Signature) V() uint8 {
 }
 
 // SignatureEnvelope wraps a signature with its type.
-// Supports secp256k1, p256, and webauthn signatures.
+// Supports secp256k1, p256, webauthn, and keychain signatures.
 type SignatureEnvelope struct {
-	Type      string     `json:"type"`      // "secp256k1", "p256", or "webauthn"
-	Signature *Signature `json:"signature"` // The actual signature
+	Type      string     `json:"type"`      // "secp256k1", "p256", "webauthn", or "keychain"
+	Signature *Signature `json:"signature"` // The actual signature (for secp256k1, p256, webauthn)
+	Raw       []byte     `json:"raw"`       // Raw signature bytes (for keychain signatures)
 }
 
 // NewSignature creates a new ECDSA signature.

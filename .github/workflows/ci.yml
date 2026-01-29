@@ -2,9 +2,8 @@ name: CI
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main ]
   pull_request:
-    branches: [ main, master ]
   schedule:
     - cron: '0 */6 * * *'  # Every 6 hours - catch tempo drift early
   workflow_dispatch:  # Manual trigger
@@ -80,8 +79,8 @@ jobs:
         docker compose logs
         exit 1
 
-    - name: Run integration tests
-      run: make integration
+    - name: Run integration tests (offline only - localnet lacks tempo_fundAddress)
+      run: go test -v -run "TestIntegration_NodeConnection|TestIntegration_BuilderValidation|TestIntegration_RoundTrip" -timeout=5m ./tests
       env:
         TEMPO_RPC_URL: http://localhost:8545
 
@@ -97,7 +96,6 @@ jobs:
     name: Integration Tests (Devnet)
     runs-on: ubuntu-latest
     needs: test
-    if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main') && vars.HAS_DEVNET_SECRET == 'true'
 
     steps:
     - name: Checkout code
@@ -112,7 +110,7 @@ jobs:
       run: go mod download
 
     - name: Run integration tests against devnet
-      run: make integration
+      run: go test -v -run TestIntegration -timeout=10m ./tests
       env:
         TEMPO_RPC_URL: ${{ secrets.DEVNET_RPC_URL }}
 
@@ -120,7 +118,6 @@ jobs:
     name: Integration Tests (Testnet)
     runs-on: ubuntu-latest
     needs: test
-    if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main') && vars.HAS_TESTNET_SECRET == 'true'
 
     steps:
     - name: Checkout code
@@ -135,6 +132,6 @@ jobs:
       run: go mod download
 
     - name: Run integration tests against testnet
-      run: make integration
+      run: go test -v -run TestIntegration -timeout=10m ./tests
       env:
         TEMPO_RPC_URL: ${{ secrets.TESTNET_RPC_URL }}
