@@ -267,7 +267,17 @@ func encodeSignature(sig *signer.Signature) []interface{} {
 
 // encodeSignatureEnvelope encodes a signature envelope to RLP.
 func encodeSignatureEnvelope(envelope *signer.SignatureEnvelope) ([]byte, error) {
-	if envelope == nil || envelope.Signature == nil {
+	if envelope == nil {
+		return []byte{}, nil
+	}
+
+	// Handle keychain signatures (raw bytes)
+	if envelope.Type == "keychain" && envelope.Raw != nil {
+		return envelope.Raw, nil
+	}
+
+	// For other types, we need a parsed signature
+	if envelope.Signature == nil {
 		return []byte{}, nil
 	}
 
