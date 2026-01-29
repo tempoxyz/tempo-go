@@ -75,20 +75,29 @@ func init() {
 	}
 }
 
-// formatReceipt formats a transaction receipt for human-readable output (similar to cast)
-func formatReceipt(t *testing.T, txHash string, rpcClient *client.Client) {
+// waitForReceipt waits for a transaction receipt with retries and returns it
+func waitForReceipt(t *testing.T, rpcClient *client.Client, txHash string) map[string]interface{} {
 	t.Helper()
 	ctx := context.Background()
 
-	resp, err := rpcClient.SendRequest(ctx, "eth_getTransactionReceipt", txHash)
-	if err != nil {
-		t.Logf("Failed to get receipt: %v", err)
-		return
+	for i := 0; i < 15; i++ {
+		time.Sleep(2 * time.Second)
+		resp, err := rpcClient.SendRequest(ctx, "eth_getTransactionReceipt", txHash)
+		if err == nil && resp.Result != nil {
+			if receipt, ok := resp.Result.(map[string]interface{}); ok {
+				return receipt
+			}
+		}
 	}
+	t.Logf("Warning: Receipt not available after 30 seconds for tx %s", txHash)
+	return nil
+}
 
-	receipt, ok := resp.Result.(map[string]interface{})
-	if !ok {
-		t.Logf("Receipt not available yet")
+// formatReceipt formats a transaction receipt for human-readable output (similar to cast)
+func formatReceipt(t *testing.T, receipt map[string]interface{}) {
+	t.Helper()
+	if receipt == nil {
+		t.Logf("Receipt not available")
 		return
 	}
 
@@ -293,8 +302,11 @@ func TestIntegration_SimpleTransaction(t *testing.T) {
 	require.NoError(t, err)
 	t.Logf("Transaction hash: %s", txHash)
 
-	time.Sleep(2 * time.Second)
-	formatReceipt(t, txHash, rpcClient)
+	receipt := waitForReceipt(t, rpcClient, txHash)
+	require.NotNil(t, receipt, "Failed to get receipt")
+	status, _ := receipt["status"].(string)
+	require.Equal(t, "0x1", status, "Transaction failed")
+	formatReceipt(t, receipt)
 }
 
 // TestIntegration_FeeTokenLiquidity tests adding fee token liquidity
@@ -347,8 +359,11 @@ func TestIntegration_FeeTokenLiquidity(t *testing.T) {
 			require.NoError(t, err)
 			t.Logf("%s liquidity tx hash: %s", ft.name, txHash)
 
-			time.Sleep(2 * time.Second)
-			formatReceipt(t, txHash, rpcClient)
+			receipt := waitForReceipt(t, rpcClient, txHash)
+			require.NotNil(t, receipt, "Failed to get receipt")
+			status, _ := receipt["status"].(string)
+			require.Equal(t, "0x1", status, "Transaction failed")
+			formatReceipt(t, receipt)
 		})
 	}
 }
@@ -393,8 +408,11 @@ func TestIntegration_SendWithFeeToken(t *testing.T) {
 			require.NoError(t, err)
 			t.Logf("Sent with %s fee token, tx hash: %s", ft.name, txHash)
 
-			time.Sleep(2 * time.Second)
-			formatReceipt(t, txHash, rpcClient)
+			receipt := waitForReceipt(t, rpcClient, txHash)
+			require.NotNil(t, receipt, "Failed to get receipt")
+			status, _ := receipt["status"].(string)
+			require.Equal(t, "0x1", status, "Transaction failed")
+			formatReceipt(t, receipt)
 		})
 	}
 }
@@ -432,8 +450,11 @@ func TestIntegration_2DNonces(t *testing.T) {
 			require.NoError(t, err)
 			t.Logf("2D nonce (key=%d) tx hash: %s", key, txHash)
 
-			time.Sleep(2 * time.Second)
-			formatReceipt(t, txHash, rpcClient)
+			receipt := waitForReceipt(t, rpcClient, txHash)
+			require.NotNil(t, receipt, "Failed to get receipt")
+			status, _ := receipt["status"].(string)
+			require.Equal(t, "0x1", status, "Transaction failed")
+			formatReceipt(t, receipt)
 		})
 	}
 }
@@ -470,8 +491,11 @@ func TestIntegration_ExpiringNonces(t *testing.T) {
 		require.NoError(t, err)
 		t.Logf("Expiring nonce (validBefore=%d) tx hash: %s", validBefore, txHash)
 
-		time.Sleep(2 * time.Second)
-		formatReceipt(t, txHash, rpcClient)
+		receipt := waitForReceipt(t, rpcClient, txHash)
+		require.NotNil(t, receipt, "Failed to get receipt")
+		status, _ := receipt["status"].(string)
+		require.Equal(t, "0x1", status, "Transaction failed")
+		formatReceipt(t, receipt)
 	})
 
 	t.Run("ValidAfterAndBefore", func(t *testing.T) {
@@ -501,8 +525,11 @@ func TestIntegration_ExpiringNonces(t *testing.T) {
 		require.NoError(t, err)
 		t.Logf("Expiring nonce (validAfter=%d, validBefore=%d) tx hash: %s", validAfter, validBefore, txHash)
 
-		time.Sleep(2 * time.Second)
-		formatReceipt(t, txHash, rpcClient)
+		receipt := waitForReceipt(t, rpcClient, txHash)
+		require.NotNil(t, receipt, "Failed to get receipt")
+		status, _ := receipt["status"].(string)
+		require.Equal(t, "0x1", status, "Transaction failed")
+		formatReceipt(t, receipt)
 	})
 }
 
@@ -551,27 +578,11 @@ func TestIntegration_SponsoredTransaction(t *testing.T) {
 	require.NoError(t, err)
 	t.Logf("Sponsored transaction hash: %s", txHash)
 
-	// Wait for receipt with retries (devnet can be slow)
-	var receipt map[string]interface{}
-	for i := 0; i < 15; i++ {
-		time.Sleep(2 * time.Second)
-		resp, err := rpcClient.SendRequest(ctx, "eth_getTransactionReceipt", txHash)
-		if err == nil && resp.Result != nil {
-			if r, ok := resp.Result.(map[string]interface{}); ok {
-				receipt = r
-				t.Logf("Got receipt after %d attempts", i+1)
-				break
-			}
-		}
-		t.Logf("Waiting for receipt... attempt %d", i+1)
-	}
-
-	if receipt == nil {
-		t.Log("Receipt not available - tx may be pending. Skipping fee payer verification.")
-		t.Skip("Receipt not available after 30 seconds - devnet may be slow")
-	}
-
-	formatReceipt(t, txHash, rpcClient)
+	receipt := waitForReceipt(t, rpcClient, txHash)
+	require.NotNil(t, receipt, "Failed to get receipt")
+	status, _ := receipt["status"].(string)
+	require.Equal(t, "0x1", status, "Sponsored transaction failed")
+	formatReceipt(t, receipt)
 
 	// Verify the fee payer in receipt matches sponsor
 	feePayer, _ := receipt["feePayer"].(string)
@@ -639,27 +650,12 @@ func TestIntegration_AccessKeys(t *testing.T) {
 		require.NoError(t, err)
 		t.Logf("Authorize access key tx hash: %s", txHash)
 
-		// Wait for receipt to confirm authorization succeeded
-		var receipt map[string]interface{}
-		for i := 0; i < 15; i++ {
-			time.Sleep(2 * time.Second)
-			resp, err := rpcClient.SendRequest(ctx, "eth_getTransactionReceipt", txHash)
-			if err == nil && resp.Result != nil {
-				if r, ok := resp.Result.(map[string]interface{}); ok {
-					receipt = r
-					t.Logf("Got receipt after %d attempts", i+1)
-					break
-				}
-			}
-			t.Logf("Waiting for authorization receipt... attempt %d", i+1)
-		}
+		receipt := waitForReceipt(t, rpcClient, txHash)
 		require.NotNil(t, receipt, "Failed to get authorization receipt")
-
-		// Check if authorization succeeded
 		status, _ := receipt["status"].(string)
 		require.Equal(t, "0x1", status, "Authorization tx failed")
 		t.Logf("Authorization tx succeeded")
-		formatReceipt(t, txHash, rpcClient)
+		formatReceipt(t, receipt)
 	})
 
 	// Access key doesn't need funding - it signs on behalf of root account
@@ -693,8 +689,11 @@ func TestIntegration_AccessKeys(t *testing.T) {
 		require.NoError(t, err)
 		t.Logf("Access key signed tx hash: %s", txHash)
 
-		time.Sleep(2 * time.Second)
-		formatReceipt(t, txHash, rpcClient)
+		receipt := waitForReceipt(t, rpcClient, txHash)
+		require.NotNil(t, receipt, "Failed to get receipt")
+		status, _ := receipt["status"].(string)
+		require.Equal(t, "0x1", status, "Access key transaction failed")
+		formatReceipt(t, receipt)
 	})
 }
 
@@ -729,8 +728,11 @@ func TestIntegration_BatchTransactions(t *testing.T) {
 		require.NoError(t, err)
 		t.Logf("Batch (2 calls) tx hash: %s", txHash)
 
-		time.Sleep(2 * time.Second)
-		formatReceipt(t, txHash, rpcClient)
+		receipt := waitForReceipt(t, rpcClient, txHash)
+		require.NotNil(t, receipt, "Failed to get receipt")
+		status, _ := receipt["status"].(string)
+		require.Equal(t, "0x1", status, "Batch transaction failed")
+		formatReceipt(t, receipt)
 	})
 
 	t.Run("ThreeCalls", func(t *testing.T) {
@@ -757,8 +759,11 @@ func TestIntegration_BatchTransactions(t *testing.T) {
 		require.NoError(t, err)
 		t.Logf("Batch (3 calls) tx hash: %s", txHash)
 
-		time.Sleep(2 * time.Second)
-		formatReceipt(t, txHash, rpcClient)
+		receipt := waitForReceipt(t, rpcClient, txHash)
+		require.NotNil(t, receipt, "Failed to get receipt")
+		status, _ := receipt["status"].(string)
+		require.Equal(t, "0x1", status, "Batch transaction failed")
+		formatReceipt(t, receipt)
 	})
 }
 
@@ -794,8 +799,11 @@ func TestIntegration_SetUserFeeToken(t *testing.T) {
 		require.NoError(t, err)
 		t.Logf("Set user fee token to BetaUSD tx hash: %s", txHash)
 
-		time.Sleep(2 * time.Second)
-		formatReceipt(t, txHash, rpcClient)
+		receipt := waitForReceipt(t, rpcClient, txHash)
+		require.NotNil(t, receipt, "Failed to get receipt")
+		status, _ := receipt["status"].(string)
+		require.Equal(t, "0x1", status, "SetUserFeeToken failed")
+		formatReceipt(t, receipt)
 	})
 
 	t.Run("ResetToNative", func(t *testing.T) {
@@ -822,8 +830,11 @@ func TestIntegration_SetUserFeeToken(t *testing.T) {
 		require.NoError(t, err)
 		t.Logf("Reset user fee token to native tx hash: %s", txHash)
 
-		time.Sleep(2 * time.Second)
-		formatReceipt(t, txHash, rpcClient)
+		receipt := waitForReceipt(t, rpcClient, txHash)
+		require.NotNil(t, receipt, "Failed to get receipt")
+		status, _ := receipt["status"].(string)
+		require.Equal(t, "0x1", status, "ResetUserFeeToken failed")
+		formatReceipt(t, receipt)
 	})
 }
 
