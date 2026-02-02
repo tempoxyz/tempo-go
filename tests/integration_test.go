@@ -486,15 +486,16 @@ func TestIntegration_SponsoredTransaction(t *testing.T) {
 	t.Logf("Sender address: %s", sender.Address().Hex())
 	t.Logf("Sponsor address: %s", sponsor.Address().Hex())
 
+	// Create sponsored transaction using SetSponsored() builder method
 	tx := tc.newTxBuilder().
 		SetNonce(0).
 		SetNonceKey(big.NewInt(200)).
 		SetGas(300000).
 		AddCall(counterContract, big.NewInt(0), incrementSelector).
+		SetSponsored(true).
 		Build()
 
-	tx.AwaitingFeePayer = true
-
+	// Sign as sender
 	err := transaction.SignTransaction(tx, sender)
 	require.NoError(t, err)
 

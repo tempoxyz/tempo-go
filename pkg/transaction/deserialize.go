@@ -320,7 +320,10 @@ func decodeSignature(sigTuple []interface{}) (*signer.Signature, error) {
 }
 
 // decodeSignatureEnvelope decodes a signature envelope.
-// The envelope is RLP-encoded as [signatureType, signature].
+// Decoding formats:
+// - secp256k1: raw 65 bytes (r || s || yParity)
+// - keychain: RLP [type, rawBytes]
+// - p256/webauthn: RLP [type, [yParity, r, s]]
 func decodeSignatureEnvelope(envelopeBytes []byte) (*signer.SignatureEnvelope, error) {
 	// tempo.ts v0.4.2+ backward compatibility:
 	// For secp256k1, the signature envelope is a raw 65-byte signature (not a list)
@@ -341,7 +344,7 @@ func decodeSignatureEnvelope(envelopeBytes []byte) (*signer.SignatureEnvelope, e
 		}, nil
 	}
 
-	// For other signature types (p256, webauthn), try structured decoding
+	// For other signature types (p256, webauthn, keychain), try structured decoding
 	var raw []interface{}
 	if err := rlp.DecodeBytes(envelopeBytes, &raw); err != nil {
 		return nil, fmt.Errorf("failed to decode signature envelope RLP: %w", err)
@@ -358,7 +361,18 @@ func decodeSignatureEnvelope(envelopeBytes []byte) (*signer.SignatureEnvelope, e
 	}
 	sigType := string(typeBytes)
 
-	// Field 1: signature tuple [yParity, r, s]
+	// Field 1: signature data - either raw bytes (keychain) or tuple [yParity, r, s]
+	if sigType == "keychain" {
+		rawBytes, ok := raw[1].([]byte)
+		if !ok {
+			return nil, fmt.Errorf("keychain signature is not bytes")
+		}
+		return &signer.SignatureEnvelope{
+			Type: "keychain",
+			Raw:  rawBytes,
+		}, nil
+	}
+
 	sigTuple, ok := raw[1].([]interface{})
 	if !ok {
 		return nil, fmt.Errorf("signature is not a tuple")

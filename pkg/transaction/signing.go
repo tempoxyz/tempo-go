@@ -105,9 +105,20 @@ func AddFeePayerSignature(tx *Tx, sgn *signer.Signer) error {
 }
 
 // VerifySignature verifies the sender signature on a transaction.
+// Only secp256k1 signatures can be verified via ecrecover. For P256, WebAuthn,
+// or Keychain signatures, use on-chain verification via the Account Keychain precompile.
 func VerifySignature(tx *Tx) (common.Address, error) {
 	if tx.Signature == nil {
 		return common.Address{}, ErrNoSignature
+	}
+
+	if tx.Signature.Type != "" && tx.Signature.Type != SignatureTypeSecp256k1 {
+		return common.Address{}, fmt.Errorf("%w: %s (only secp256k1 can be verified off-chain)",
+			ErrUnsupportedSignatureType, tx.Signature.Type)
+	}
+
+	if tx.Signature.Signature == nil {
+		return common.Address{}, fmt.Errorf("signature envelope has no parsed signature")
 	}
 
 	hash, err := GetSignPayload(tx)
@@ -124,6 +135,8 @@ func VerifySignature(tx *Tx) (common.Address, error) {
 }
 
 // VerifyFeePayerSignature verifies the fee payer signature on a transaction.
+// Per Tempo Transaction spec, fee payer signatures MUST be secp256k1.
+// This is enforced by the type system: FeePayerSignature is *signer.Signature (not SignatureEnvelope).
 func VerifyFeePayerSignature(tx *Tx, sender common.Address) (common.Address, error) {
 	if tx.FeePayerSignature == nil {
 		return common.Address{}, ErrNoFeePayerSignature

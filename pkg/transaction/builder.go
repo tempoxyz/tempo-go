@@ -125,6 +125,15 @@ func (b *Builder) AddAccessListEntry(address common.Address, storageKeys []commo
 	return b
 }
 
+// SetSponsored marks this transaction as sponsored (awaiting a fee payer signature).
+// Per the Tempo Transaction spec, sponsored transactions encode fee_token as empty
+// and fee_payer_signature field as 0x00 in the sender's signing payload.
+// This MUST be called before SignTransaction if a fee payer will be added later.
+func (b *Builder) SetSponsored(sponsored bool) *Builder {
+	b.tx.AwaitingFeePayer = sponsored
+	return b
+}
+
 // Build returns the constructed transaction.
 // Note: This does not validate the transaction. Call Validate() separately if needed.
 func (b *Builder) Build() *Tx {

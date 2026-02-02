@@ -358,15 +358,15 @@ func TestValidTransactionVectors(t *testing.T) {
 				Calls: []Call{
 					{To: &addr1, Value: big.NewInt(0), Data: []byte{}},
 				},
-				NonceKey: big.NewInt(0),
-				Nonce:    0,
+				NonceKey:         big.NewInt(0),
+				Nonce:            0,
+				AwaitingFeePayer: true, // Must be set before signing for spec compliance
 			},
-			signWithSender:     true,
-			signWithFeePayer:   true, // With fee payer
-			shouldValidate:     true,
-			expectedSignType:   SignatureTypeSecp256k1,
-			expectedSerialized: "0x76f8b601843b9aca008477359400825208d8d79470997970c51812dc3a010c7d01b50e0d17dc79c88080c08080808080f84380a0d86350bfb64659c00dcea2682a47dc8c119373b8d0af7ea465f60496508f131ca037a115d2bec8ee3d0af83df5873de151ce16fc7a26ed835143ccad962cab9132c0b8415699d8feb5ace056f1c1e93c420f53942e7b9f31058cb2a2bb26550e5930ef1a55f6bdd3a27105268536dfe17f386d79f6c8b949698d105838455a20a857c33801",
-			description:        "Sponsored transaction with fee payer",
+			signWithSender:   true,
+			signWithFeePayer: true, // With fee payer
+			shouldValidate:   true,
+			expectedSignType: SignatureTypeSecp256k1,
+			description:      "Sponsored transaction with fee payer",
 		},
 		{
 			name: "sponsored_with_fee_token",
@@ -378,9 +378,10 @@ func TestValidTransactionVectors(t *testing.T) {
 				Calls: []Call{
 					{To: &addr1, Value: big.NewInt(0), Data: []byte{}},
 				},
-				NonceKey: big.NewInt(0),
-				Nonce:    0,
-				FeeToken: feeTokenAddr,
+				NonceKey:         big.NewInt(0),
+				Nonce:            0,
+				FeeToken:         feeTokenAddr,
+				AwaitingFeePayer: true, // Must be set before signing for spec compliance
 			},
 			signWithSender:   true,
 			signWithFeePayer: true, // With fee payer

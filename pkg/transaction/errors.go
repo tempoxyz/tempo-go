@@ -20,4 +20,12 @@ var (
 
 	// ErrInvalidTransactionType is returned when a transaction has an unexpected type prefix.
 	ErrInvalidTransactionType = errors.New("invalid transaction type")
+
+	// ErrUnsupportedSignatureType is returned when attempting to verify a signature type
+	// that cannot be verified via ecrecover (e.g., P256, WebAuthn, Keychain).
+	ErrUnsupportedSignatureType = errors.New("unsupported signature type for verification")
+
+	// ErrInvalidSignatureType is returned when a signature type is not allowed for the operation.
+	// For example, fee payer signatures must be secp256k1.
+	ErrInvalidSignatureType = errors.New("invalid signature type")
 )

@@ -165,11 +165,22 @@ func encodeWithPrefix(rlpList []interface{}, format SerializeFormat) (string, er
 }
 
 // SerializeForSigning serializes a transaction for sender signing (without signatures).
+// Per Tempo Transaction spec, when a fee payer will be present (sponsored transaction):
+// - fee_token MUST be encoded as empty (0x80)
+// - fee_payer_signature field MUST be encoded as 0x00 marker
+// This ensures the sender doesn't commit to the fee token, allowing fee payers
+// to pay with any token they choose.
 func SerializeForSigning(tx *Tx) (string, error) {
-	// Create a copy without signatures
+	sponsored := tx.AwaitingFeePayer || tx.FeePayerSignature != nil
+
 	txCopy := *tx
 	txCopy.Signature = nil
 	txCopy.FeePayerSignature = nil
+
+	if sponsored {
+		txCopy.FeeToken = common.Address{}
+		txCopy.AwaitingFeePayer = true
+	}
 
 	return Serialize(&txCopy, &SerializeOptions{Format: FormatNormal})
 }
@@ -266,22 +277,19 @@ func encodeSignature(sig *signer.Signature) []interface{} {
 }
 
 // encodeSignatureEnvelope encodes a signature envelope to RLP.
+// Encoding formats:
+// - secp256k1: raw 65 bytes (r || s || yParity)
+// - keychain: RLP [type, rawBytes]
+// - p256/webauthn: RLP [type, [yParity, r, s]]
 func encodeSignatureEnvelope(envelope *signer.SignatureEnvelope) ([]byte, error) {
 	if envelope == nil {
 		return []byte{}, nil
 	}
 
-	// Handle keychain signatures (raw bytes)
-	if envelope.Type == "keychain" && envelope.Raw != nil {
-		return envelope.Raw, nil
-	}
-
-	// For other types, we need a parsed signature
-	if envelope.Signature == nil {
-		return []byte{}, nil
-	}
-
 	if envelope.Type == "secp256k1" {
+		if envelope.Signature == nil {
+			return []byte{}, nil
+		}
 		result := make([]byte, 65)
 
 		rBytes := envelope.Signature.R.Bytes()
@@ -293,6 +301,18 @@ func encodeSignatureEnvelope(envelope *signer.SignatureEnvelope) ([]byte, error)
 		result[64] = envelope.Signature.YParity
 
 		return result, nil
+	}
+
+	if envelope.Type == "keychain" && envelope.Raw != nil {
+		envelopeRLP := []interface{}{
+			[]byte(envelope.Type),
+			envelope.Raw,
+		}
+		return rlp.EncodeToBytes(envelopeRLP)
+	}
+
+	if envelope.Signature == nil {
+		return []byte{}, nil
 	}
 
 	sigTuple := encodeSignature(envelope.Signature)
