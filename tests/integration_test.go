@@ -163,18 +163,34 @@ func fundAddress(t *testing.T, rpcClient *client.Client, address common.Address)
 	t.Helper()
 	ctx := context.Background()
 
+	// Request funding from faucet
 	for i := 0; i < 100; i++ {
 		resp, err := rpcClient.SendRequest(ctx, "tempo_fundAddress", address.Hex())
 		if err == nil && resp.Error == nil {
 			if result, ok := resp.Result.([]interface{}); ok && len(result) > 0 {
 				t.Logf("Funded address %s", address.Hex())
-				time.Sleep(5 * time.Second) // Wait for blocks to mine
-				return
+				break
 			}
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
-	t.Logf("Warning: Failed to fund address %s after 100 attempts", address.Hex())
+
+	// Wait for balance to be non-zero (faucet tx confirmed)
+	for i := 0; i < 60; i++ {
+		resp, err := rpcClient.SendRequest(ctx, "eth_getBalance", address.Hex(), "latest")
+		if err == nil && resp.Error == nil {
+			if balanceHex, ok := resp.Result.(string); ok {
+				balance := new(big.Int)
+				balance.SetString(strings.TrimPrefix(balanceHex, "0x"), 16)
+				if balance.Sign() > 0 {
+					t.Logf("Address %s has balance %s", address.Hex(), balance.String())
+					return
+				}
+			}
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	t.Fatalf("Failed to fund address %s: balance still zero after 30s", address.Hex())
 }
 
 // createAndFundSigner creates a new signer and funds it
