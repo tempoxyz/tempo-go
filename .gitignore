@@ -65,3 +65,5 @@ build/
 
 # Go vendor directory
 vendor/
+docs/
+examples/feepayer/fee-payer-server

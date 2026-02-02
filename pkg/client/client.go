@@ -68,6 +68,11 @@ func New(rpcURL string, opts ...Option) *Client {
 	return c
 }
 
+// RPCURL returns the RPC URL configured for this client.
+func (c *Client) RPCURL() string {
+	return c.rpcURL
+}
+
 // SignTransaction signs a transaction without broadcasting it.
 // Returns the signed transaction as a hex string that can be broadcast later.
 // This is useful when you want to sign a transaction but broadcast it through a different channel.

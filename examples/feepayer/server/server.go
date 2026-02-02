@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/joho/godotenv"
 	"github.com/tempoxyz/tempo-go/pkg/client"
 	"github.com/tempoxyz/tempo-go/pkg/signer"
@@ -41,12 +42,12 @@ func LoadConfigFromEnv() (*Config, error) {
 
 	config := &Config{
 		Port:               getEnvInt("FEE_PAYER_PORT", 3000),
-		TempoRPCURL:        getEnv("TEMPO_RPC_URL", "https://rpc.testnet.tempo.xyz"),
+		TempoRPCURL:        getEnv("TEMPO_RPC_URL", "https://rpc.moderato.tempo.xyz"),
 		TempoUsername:      getEnv("TEMPO_USERNAME", ""),
 		TempoPassword:      getEnv("TEMPO_PASSWORD", ""),
 		FeePayerPrivateKey: getEnv("TEMPO_FEE_PAYER_PRIVATE_KEY", ""),
 		AlphaUSDAddress:    getEnv("ALPHAUSD_ADDRESS", "0x20c0000000000000000000000000000000000001"),
-		ChainID:            getEnvInt("TEMPO_CHAIN_ID", 42424),
+		ChainID:            getEnvInt("TEMPO_CHAIN_ID", 42431),
 	}
 
 	if err := config.Validate(); err != nil {
@@ -218,14 +219,31 @@ func (s *FeePayerServer) handleFeePayerRelay(w http.ResponseWriter, r *http.Requ
 
 // processTransaction deserializes, signs, and broadcasts a transaction.
 func (s *FeePayerServer) processTransaction(serializedTx, method string) (string, error) {
+	log.Printf("Received raw tx (first 100 chars): %s...", serializedTx[:min(100, len(serializedTx))])
+
 	tx, err := transaction.Deserialize(serializedTx)
 	if err != nil {
 		return "", fmt.Errorf("failed to deserialize transaction: %w", err)
 	}
 
+	log.Printf("Deserialized tx: chainID=%s, gas=%d, nonce=%d, nonceKey=%s",
+		tx.ChainID, tx.Gas, tx.Nonce, tx.NonceKey)
+	log.Printf("  feeToken=%s, awaitingFeePayer=%v", tx.FeeToken.Hex(), tx.AwaitingFeePayer)
+	log.Printf("  calls=%d, maxFeePerGas=%s, maxPriorityFeePerGas=%s",
+		len(tx.Calls), tx.MaxFeePerGas, tx.MaxPriorityFeePerGas)
+
 	if tx.Signature == nil {
 		return "", fmt.Errorf("transaction must have sender signature")
 	}
+	log.Printf("  signature present: type=%s", tx.Signature.Type)
+
+	// Debug: Log the signing payload before verification
+	signPayload, _ := transaction.SerializeForSigning(tx)
+	log.Printf("Sign payload for verification: %s", signPayload)
+	
+	// Also log hash
+	signHash, _ := transaction.GetSignPayload(tx)
+	log.Printf("Sign hash: %s", signHash.Hex())
 
 	senderAddr, err := transaction.VerifySignature(tx)
 	if err != nil {
@@ -233,19 +251,45 @@ func (s *FeePayerServer) processTransaction(serializedTx, method string) (string
 	}
 
 	log.Printf("Processing transaction from sender: %s", senderAddr.Hex())
+	tx.From = senderAddr  // Set sender address so AddFeePayerSignature doesn't try to recover it
+
+	// Set the fee token before fee payer signing.
+	// The sender signed with fee_token=empty (per Tempo spec for sponsored txs),
+	// but the final broadcast tx must include the actual fee token.
+	tx.FeeToken = common.HexToAddress(s.tokenAddress)
+	tx.AwaitingFeePayer = false // No longer awaiting - we're adding the signature now
+	log.Printf("Set fee token to: %s", tx.FeeToken.Hex())
+
+	// Debug: Log the fee payer hash BEFORE signing
+	feePayerPayload, _ := transaction.SerializeForFeePayerSigning(tx, senderAddr)
+	feePayerHash, _ := transaction.GetFeePayerSignPayload(tx, senderAddr)
+	log.Printf("Fee payer payload being signed: %s", feePayerPayload)
+	log.Printf("Fee payer hash being signed: %s", feePayerHash.Hex())
 
 	err = transaction.AddFeePayerSignature(tx, s.signer)
 	if err != nil {
 		return "", fmt.Errorf("failed to add fee payer signature: %w", err)
+	}
+	log.Printf("Added fee payer signature from: %s", s.signer.Address().Hex())
+	log.Printf("Fee payer sig: R=%x S=%x V=%d", tx.FeePayerSignature.R.Bytes(), tx.FeePayerSignature.S.Bytes(), tx.FeePayerSignature.YParity)
+	
+	// Verify fee payer signature before broadcasting
+	recoveredFeePayer, verifyErr := transaction.VerifyFeePayerSignature(tx, senderAddr)
+	if verifyErr != nil {
+		log.Printf("WARNING: Fee payer signature verification failed: %v", verifyErr)
+	} else {
+		log.Printf("Fee payer signature verified, recovered: %s", recoveredFeePayer.Hex())
 	}
 
 	dualSignedTx, err := transaction.Serialize(tx, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to serialize dual-signed transaction: %w", err)
 	}
+	log.Printf("Dual-signed tx (first 100 chars): %s...", dualSignedTx[:min(100, len(dualSignedTx))])
 
 	ctx := context.Background()
 	var txHash string
+	log.Printf("Broadcasting via %s to %s", method, s.tempoClient.RPCURL())
 	if method == methodSendRawTransactionSync {
 		txHash, err = s.tempoClient.SendRawTransactionSync(ctx, dualSignedTx)
 	} else {
@@ -256,6 +300,7 @@ func (s *FeePayerServer) processTransaction(serializedTx, method string) (string
 		return "", fmt.Errorf("failed to broadcast transaction: %w", err)
 	}
 
+	log.Printf("Broadcast returned txHash: %s", txHash)
 	return txHash, nil
 }
 

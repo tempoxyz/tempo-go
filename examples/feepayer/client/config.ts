@@ -7,9 +7,11 @@ export class Config {
   readonly feePayerServerUrl: string;
   readonly clientPrivateKey: `0x${string}`;
   readonly alphaUsdAddress: `0x${string}`;
+  readonly chainId: number;
 
   constructor() {
-    this.tempoRpcUrl = process.env.TEMPO_RPC_URL || 'https://rpc.testnet.tempo.xyz';
+    this.tempoRpcUrl = process.env.TEMPO_RPC_URL || 'https://rpc.moderato.tempo.xyz';
+    this.chainId = parseInt(process.env.TEMPO_CHAIN_ID || '42431', 10);
     this.tempoUsername = process.env.TEMPO_USERNAME || '';
     this.tempoPassword = process.env.TEMPO_PASSWORD || '';
     this.feePayerServerUrl = process.env.FEE_PAYER_SERVER_URL || 'http://localhost:3000';
@@ -19,7 +21,7 @@ export class Config {
       throw new Error('TEMPO_CLIENT_PRIVATE_KEY environment variable is required');
     }
     this.clientPrivateKey = privateKey as `0x${string}`;
-    this.alphaUsdAddress = '0x20c0000000000000000000000000000000000001' as `0x${string}`;
+    this.alphaUsdAddress = (process.env.ALPHAUSD_ADDRESS || '0x20c0000000000000000000000000000000000001') as `0x${string}`;
   }
 
   /**

@@ -1,18 +1,32 @@
 import { createClient, http, walletActions, publicActions } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { tempo } from 'tempo.ts/chains';
-import { withFeePayer } from 'tempo.ts/viem';
+import { tempoModerato } from 'viem/chains';
+import { withFeePayer, tempoActions } from 'viem/tempo';
 import { config } from './config.js';
 
 async function main() {
   console.log('Tempo Fee Payer Client Example');
+  console.log('RPC URL:', config.getCleanRpcUrl());
+  console.log('Chain ID:', config.chainId);
+  console.log('Fee Payer Server:', config.feePayerServerUrl);
+  console.log('Fee Token:', config.alphaUsdAddress);
 
   const account = privateKeyToAccount(config.clientPrivateKey);
   console.log('Client address:', account.address);
 
+  const chain = {
+    ...tempoModerato,
+    feeToken: config.alphaUsdAddress,
+    rpcUrls: {
+      default: {
+        http: [config.getCleanRpcUrl()],
+      },
+    },
+  };
+
   const client = createClient({
     account,
-    chain: tempo({ feeToken: config.alphaUsdAddress }),
+    chain,
     transport: withFeePayer(
       http(config.getCleanRpcUrl(), {
         fetchOptions: {
@@ -21,11 +35,16 @@ async function main() {
           },
         },
       }),
-      http(config.feePayerServerUrl)
+      http(config.feePayerServerUrl),
+      { policy: 'sign-and-broadcast' }
     ),
   })
     .extend(publicActions)
-    .extend(walletActions);
+    .extend(walletActions)
+    .extend(tempoActions());
+
+  const nonce = await client.getTransactionCount({ address: account.address });
+  console.log('Current nonce:', nonce);
 
   console.log('Sending transaction via fee payer relay...');
 
@@ -44,7 +63,7 @@ async function main() {
 
   const transaction = await client.getTransaction({ hash });
   console.log('Transaction confirmed!');
-  if (transaction.feePayer) {
+  if ('feePayer' in transaction && transaction.feePayer) {
     console.log('Fee payer address:', transaction.feePayer);
   }
 }

@@ -292,6 +292,9 @@ func decodeSignature(sigTuple []interface{}) (*signer.Signature, error) {
 			yParity -= 27
 		}
 	}
+	if yParity > 1 {
+		return nil, fmt.Errorf("invalid yParity: must be 0 or 1, got %d", yParity)
+	}
 
 	// Field 1: r
 	rBytes, ok := sigTuple[1].([]byte)
@@ -320,14 +323,17 @@ func decodeSignature(sigTuple []interface{}) (*signer.Signature, error) {
 }
 
 // decodeSignatureEnvelope decodes a signature envelope.
-// Decoding formats:
-// - secp256k1: raw 65 bytes (r || s || yParity)
-// - keychain: RLP [type, rawBytes]
-// - p256/webauthn: RLP [type, [yParity, r, s]]
+// Per Tempo Transaction spec, signature types are detected by length and type prefix:
+// - secp256k1: raw 65 bytes (r || s || yParity) - no type prefix
+// - keychain: 0x03 + user_address (20 bytes) + inner_sig (65 bytes) = 86 bytes
+// - p256: 0x01 + 129 bytes = 130 bytes
+// - webauthn: 0x02 + variable data (129-2049 bytes total)
 func decodeSignatureEnvelope(envelopeBytes []byte) (*signer.SignatureEnvelope, error) {
-	// tempo.ts v0.4.2+ backward compatibility:
-	// For secp256k1, the signature envelope is a raw 65-byte signature (not a list)
-	// Format: r (32 bytes) + s (32 bytes) + yParity (1 byte)
+	if len(envelopeBytes) == 0 {
+		return nil, nil
+	}
+
+	// secp256k1: exactly 65 bytes with no type prefix
 	if len(envelopeBytes) == 65 {
 		r := new(big.Int).SetBytes(envelopeBytes[0:32])
 		s := new(big.Int).SetBytes(envelopeBytes[32:64])
@@ -337,6 +343,9 @@ func decodeSignatureEnvelope(envelopeBytes []byte) (*signer.SignatureEnvelope, e
 		if yParity >= 27 {
 			yParity -= 27
 		}
+		if yParity > 1 {
+			return nil, fmt.Errorf("invalid yParity in signature envelope: must be 0 or 1, got %d", yParity)
+		}
 
 		return &signer.SignatureEnvelope{
 			Type:      "secp256k1",
@@ -344,47 +353,42 @@ func decodeSignatureEnvelope(envelopeBytes []byte) (*signer.SignatureEnvelope, e
 		}, nil
 	}
 
-	// For other signature types (p256, webauthn, keychain), try structured decoding
-	var raw []interface{}
-	if err := rlp.DecodeBytes(envelopeBytes, &raw); err != nil {
-		return nil, fmt.Errorf("failed to decode signature envelope RLP: %w", err)
+	// Check type prefix for other signature types
+	if len(envelopeBytes) < 1 {
+		return nil, fmt.Errorf("signature envelope too short")
 	}
 
-	if len(raw) != 2 {
-		return nil, fmt.Errorf("invalid signature envelope length: expected 2, got %d", len(raw))
-	}
+	typePrefix := envelopeBytes[0]
 
-	// Field 0: signature type
-	typeBytes, ok := raw[0].([]byte)
-	if !ok {
-		return nil, fmt.Errorf("signature type is not bytes")
-	}
-	sigType := string(typeBytes)
+	switch typePrefix {
+	case 0x01: // P256: 0x01 + 129 bytes = 130 bytes
+		if len(envelopeBytes) != 130 {
+			return nil, fmt.Errorf("invalid P256 signature length: expected 130, got %d", len(envelopeBytes))
+		}
+		return &signer.SignatureEnvelope{
+			Type: "p256",
+			Raw:  envelopeBytes,
+		}, nil
 
-	// Field 1: signature data - either raw bytes (keychain) or tuple [yParity, r, s]
-	if sigType == "keychain" {
-		rawBytes, ok := raw[1].([]byte)
-		if !ok {
-			return nil, fmt.Errorf("keychain signature is not bytes")
+	case 0x02: // WebAuthn: 0x02 + variable (129-2049 bytes total)
+		if len(envelopeBytes) < 129 || len(envelopeBytes) > 2049 {
+			return nil, fmt.Errorf("invalid WebAuthn signature length: got %d, expected 129-2049", len(envelopeBytes))
+		}
+		return &signer.SignatureEnvelope{
+			Type: "webauthn",
+			Raw:  envelopeBytes,
+		}, nil
+
+	case 0x03: // Keychain: 0x03 + user_address (20 bytes) + inner_sig (65 bytes) = 86 bytes
+		if len(envelopeBytes) != 86 {
+			return nil, fmt.Errorf("invalid Keychain signature length: expected 86, got %d", len(envelopeBytes))
 		}
 		return &signer.SignatureEnvelope{
 			Type: "keychain",
-			Raw:  rawBytes,
+			Raw:  envelopeBytes,
 		}, nil
-	}
 
-	sigTuple, ok := raw[1].([]interface{})
-	if !ok {
-		return nil, fmt.Errorf("signature is not a tuple")
+	default:
+		return nil, fmt.Errorf("unknown signature type prefix: 0x%02x", typePrefix)
 	}
-
-	sig, err := decodeSignature(sigTuple)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode signature: %w", err)
-	}
-
-	return &signer.SignatureEnvelope{
-		Type:      sigType,
-		Signature: sig,
-	}, nil
 }
