@@ -786,6 +786,26 @@ func TestSerializeForSigning_SponsoredTransaction(t *testing.T) {
 	})
 }
 
+// TestSerializeForFeePayerSigning_ZeroSender verifies that zero sender address is rejected.
+func TestSerializeForFeePayerSigning_ZeroSender(t *testing.T) {
+	tx := &Tx{
+		ChainID:  big.NewInt(42424),
+		Gas:      21000,
+		NonceKey: big.NewInt(0),
+		Calls: []Call{
+			{
+				To:    addrPtr(common.HexToAddress("0x1234567890123456789012345678901234567890")),
+				Value: big.NewInt(0),
+				Data:  []byte{},
+			},
+		},
+	}
+
+	_, err := SerializeForFeePayerSigning(tx, common.Address{})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "sender address is required")
+}
+
 // TestKeychainSignatureRoundtrip verifies keychain signatures can be serialized and deserialized.
 func TestKeychainSignatureRoundtrip(t *testing.T) {
 	rawKeychainSig := []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,

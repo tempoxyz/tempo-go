@@ -189,6 +189,10 @@ func SerializeForSigning(tx *Tx) (string, error) {
 // This uses the 0x78 prefix and includes the sender address.
 // IMPORTANT: Must remove BOTH sender and fee payer signatures (per tempo.ts reference).
 func SerializeForFeePayerSigning(tx *Tx, sender common.Address) (string, error) {
+	if sender == (common.Address{}) {
+		return "", fmt.Errorf("sender address is required for fee payer signing")
+	}
+
 	// Create a copy without signatures
 	txCopy := *tx
 	txCopy.Signature = nil         // Remove sender signature (required by tempo.ts)
