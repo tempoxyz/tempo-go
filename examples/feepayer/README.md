@@ -20,11 +20,6 @@ The server accepts user-signed Type 0x76 transactions, adds its own fee payer si
                                            └─────────────────────┘
 ```
 
-Per the [Tempo Transaction spec](https://docs.tempo.xyz/protocol/transactions/spec-tempo-transaction):
-- **Sender signing**: `fee_token` is skipped when `feePayer: true` (allows fee payer to choose token)
-- **Fee payer signing**: Uses 0x78 prefix with sender address included
-- **Final broadcast**: Includes both signatures with the fee payer's chosen fee token
-
 ## Running the Server
 
 1. Copy the environment file and configure your settings:
@@ -34,7 +29,7 @@ cd examples/feepayer
 cp env.example .env
 ```
 
-2. Edit `.env` with your values:
+1. Edit `.env` with your values:
 
 ```env
 FEE_PAYER_PORT=3000
@@ -46,7 +41,7 @@ ALPHAUSD_ADDRESS=0x20c0000000000000000000000000000000000001
 TEMPO_CHAIN_ID=42431
 ```
 
-3. Run the server:
+1. Run the server:
 
 ```bash
 go run cmd/main.go
@@ -63,14 +58,14 @@ cd examples/feepayer/client
 pnpm install
 ```
 
-2. Configure `.env` in the client directory:
+1. Configure `.env` in the client directory:
 
 ```env
 TEMPO_CLIENT_PRIVATE_KEY=0x...
 FEE_PAYER_SERVER_URL=http://localhost:3000
 ```
 
-3. Run the client:
+1. Run the client:
 
 ```bash
 pnpm start
@@ -81,24 +76,3 @@ To type-check the code:
 ```bash
 pnpm check
 ```
-
-## Client Configuration
-
-The client uses viem's `withFeePayer` transport with `policy: 'sign-and-broadcast'`:
-
-```typescript
-transport: withFeePayer(
-  http(rpcUrl),
-  http('http://localhost:3000'),
-  { policy: 'sign-and-broadcast' }  // Server broadcasts the tx
-)
-```
-
-- `'sign-and-broadcast'`: Fee payer server signs and broadcasts (returns tx hash)
-- `'sign-only'`: Fee payer server only signs (client broadcasts) - use with tempo.ts `Handler.feePayer`
-
-## See Also
-
-- [docs/FEE_TOKEN_HANDLING_COMPARISON.md](../../docs/FEE_TOKEN_HANDLING_COMPARISON.md) - How fee_token is handled across Rust, Go, and TypeScript implementations
-- [Tempo Transaction Spec](https://docs.tempo.xyz/protocol/transactions/spec-tempo-transaction)
-- [Sponsor User Fees Guide](https://docs.tempo.xyz/guide/payments/sponsor-user-fees)
