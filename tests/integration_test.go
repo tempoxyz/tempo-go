@@ -127,18 +127,28 @@ func (tc *testContext) waitForBalance(address common.Address) {
 	tc.t.Fatalf("Failed to get balance for %s after 30s", address.Hex())
 }
 
-// fundAddress funds an address and waits for balance confirmation
+// fundAddress funds an address and waits for tx receipts and balance confirmation
 func (tc *testContext) fundAddress(address common.Address) {
 	tc.t.Helper()
+	var txHashes []string
 	for i := 0; i < 100; i++ {
 		resp, err := tc.client.SendRequest(tc.ctx, "tempo_fundAddress", address.Hex())
 		if err == nil && resp.Error == nil {
 			if result, ok := resp.Result.([]interface{}); ok && len(result) > 0 {
 				tc.t.Logf("Funded address %s", address.Hex())
+				for _, h := range result {
+					if hash, ok := h.(string); ok {
+						txHashes = append(txHashes, hash)
+					}
+				}
 				break
 			}
 		}
 		time.Sleep(200 * time.Millisecond)
+	}
+	// Wait for all funding tx receipts to ensure state is confirmed
+	for _, txHash := range txHashes {
+		tc.waitForReceipt(txHash)
 	}
 	tc.waitForBalance(address)
 }
