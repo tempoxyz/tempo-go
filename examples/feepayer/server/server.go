@@ -240,7 +240,7 @@ func (s *FeePayerServer) processTransaction(serializedTx, method string) (string
 	// Debug: Log the signing payload before verification
 	signPayload, _ := transaction.SerializeForSigning(tx)
 	log.Printf("Sign payload for verification: %s", signPayload)
-	
+
 	// Also log hash
 	signHash, _ := transaction.GetSignPayload(tx)
 	log.Printf("Sign hash: %s", signHash.Hex())
@@ -251,7 +251,7 @@ func (s *FeePayerServer) processTransaction(serializedTx, method string) (string
 	}
 
 	log.Printf("Processing transaction from sender: %s", senderAddr.Hex())
-	tx.From = senderAddr  // Set sender address so AddFeePayerSignature doesn't try to recover it
+	tx.From = senderAddr // Set sender address so AddFeePayerSignature doesn't try to recover it
 
 	// Set the fee token before fee payer signing.
 	// The sender signed with fee_token=empty (per Tempo spec for sponsored txs),
@@ -272,7 +272,7 @@ func (s *FeePayerServer) processTransaction(serializedTx, method string) (string
 	}
 	log.Printf("Added fee payer signature from: %s", s.signer.Address().Hex())
 	log.Printf("Fee payer sig: R=%x S=%x V=%d", tx.FeePayerSignature.R.Bytes(), tx.FeePayerSignature.S.Bytes(), tx.FeePayerSignature.YParity)
-	
+
 	// Verify fee payer signature before broadcasting
 	recoveredFeePayer, verifyErr := transaction.VerifyFeePayerSignature(tx, senderAddr)
 	if verifyErr != nil {
