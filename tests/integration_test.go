@@ -162,7 +162,7 @@ func (tc *testContext) getNonce(address common.Address) uint64 {
 }
 
 // sendTx serializes, sends a transaction and waits for receipt
-func (tc *testContext) sendTx(tx *transaction.Transaction) (map[string]interface{}, string) {
+func (tc *testContext) sendTx(tx *transaction.Tx) (map[string]interface{}, string) {
 	tc.t.Helper()
 	serialized, err := transaction.Serialize(tx, nil)
 	require.NoError(tc.t, err)
@@ -176,7 +176,7 @@ func (tc *testContext) sendTx(tx *transaction.Transaction) (map[string]interface
 }
 
 // sendTxExpectSuccess sends a tx and asserts it succeeds
-func (tc *testContext) sendTxExpectSuccess(tx *transaction.Transaction, msg string) map[string]interface{} {
+func (tc *testContext) sendTxExpectSuccess(tx *transaction.Tx, msg string) map[string]interface{} {
 	tc.t.Helper()
 	receipt, _ := tc.sendTx(tx)
 	require.NotNil(tc.t, receipt, "Failed to get receipt")
