@@ -191,7 +191,7 @@ func parseHexUint64(s string) (uint64, error) {
 	return strconv.ParseUint(strings.TrimPrefix(s, "0x"), 16, 64)
 }
 
-// GetTransactionCount gets the nonce for an address.
+// GetTransactionCount gets the nonce for an address using the default nonce key (0).
 func (c *Client) GetTransactionCount(ctx context.Context, address string) (uint64, error) {
 	response, err := c.SendRequest(ctx, "eth_getTransactionCount", address, "pending")
 	if err != nil {
@@ -205,6 +205,47 @@ func (c *Client) GetTransactionCount(ctx context.Context, address string) (uint6
 		return 0, fmt.Errorf("unexpected result type: %T", response.Result)
 	}
 	return parseHexUint64(nonceHex)
+}
+
+// getNonceSelector is the function selector for getNonce(address,uint256).
+// keccak256("getNonce(address,uint256)")[:4] = 0x89535803
+const getNonceSelector = "0x89535803"
+
+// nonceManagerAddress is the Nonce Manager contract address as a string for RPC calls.
+const nonceManagerAddress = "0x4e4F4E4345000000000000000000000000000000"
+
+// GetNonce gets the nonce for an address and nonce key using the Nonce Manager contract.
+// This is used for Tempo's 2D nonce system which enables parallel transaction submission.
+// Use nonceKey > 0 for parallel lanes; key 0 is the protocol nonce (use GetTransactionCount instead).
+func (c *Client) GetNonce(ctx context.Context, address string, nonceKey uint64) (uint64, error) {
+	// Build the call data: selector + address (32 bytes) + nonceKey (32 bytes)
+	addr := strings.TrimPrefix(address, "0x")
+	// Pad address to 32 bytes (left-pad with zeros)
+	paddedAddr := fmt.Sprintf("%064s", addr)
+	// Pad nonceKey to 32 bytes (left-pad with zeros)
+	paddedKey := fmt.Sprintf("%064x", nonceKey)
+
+	callData := getNonceSelector + paddedAddr + paddedKey
+
+	callObject := map[string]string{
+		"to":   nonceManagerAddress,
+		"data": callData,
+	}
+
+	response, err := c.SendRequest(ctx, "eth_call", callObject, "latest")
+	if err != nil {
+		return 0, err
+	}
+	if err := response.CheckError(); err != nil {
+		return 0, err
+	}
+
+	resultHex, ok := response.Result.(string)
+	if !ok {
+		return 0, fmt.Errorf("unexpected result type: %T", response.Result)
+	}
+
+	return parseHexUint64(resultHex)
 }
 
 // GetBlockNumber gets the current block number.

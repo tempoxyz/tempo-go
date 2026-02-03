@@ -73,10 +73,14 @@ const (
 	DefaultNonceKey = 0
 )
 
-// Common fee token addresses.
+// Common Tempo contract addresses.
 var (
 	// AlphaUSDAddress is the address of the AlphaUSD stablecoin on Tempo.
 	AlphaUSDAddress = common.HexToAddress("0x20c0000000000000000000000000000000000001")
+
+	// NonceManagerAddress is the address of the Tempo Nonce Manager contract.
+	// Used for querying nonces in the 2D nonce system.
+	NonceManagerAddress = common.HexToAddress("0x4e4F4E4345000000000000000000000000000000")
 )
 
 // New creates a new TempoTransaction with default values.
