@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Changed
+
+- `client.GetNonce()` now accepts `*big.Int` instead of `uint64` for the nonce key parameter, enabling full 192-bit nonce key support as per the Tempo Transaction spec.
+
 ## [0.2.0] - 2026-01-27
 
 ### Security

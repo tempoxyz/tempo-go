@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/big"
 	"net/http"
 	"strconv"
 	"strings"
@@ -221,14 +222,26 @@ const nonceManagerAddress = "0x4e4F4E4345000000000000000000000000000000"
 
 // GetNonce gets the nonce for an address and nonce key using the Nonce Manager contract.
 // This is used for Tempo's 2D nonce system which enables parallel transaction submission.
-// Use nonceKey > 0 for parallel lanes; key 0 is the protocol nonce (use GetTransactionCount instead).
-func (c *Client) GetNonce(ctx context.Context, address string, nonceKey uint64) (uint64, error) {
+// The nonceKey is a 192-bit value; use nonceKey > 0 for parallel lanes.
+// Key 0 is the protocol nonce (use GetTransactionCount instead).
+func (c *Client) GetNonce(ctx context.Context, address string, nonceKey *big.Int) (uint64, error) {
+	if nonceKey == nil {
+		nonceKey = big.NewInt(0)
+	}
+	// Validate nonceKey is non-negative and fits in 192 bits (per Tempo spec)
+	if nonceKey.Sign() < 0 {
+		return 0, fmt.Errorf("nonceKey must be non-negative")
+	}
+	if nonceKey.BitLen() > 192 {
+		return 0, fmt.Errorf("nonceKey exceeds 192-bit limit")
+	}
+
 	// Build the call data: selector + address (32 bytes) + nonceKey (32 bytes)
 	addr := strings.TrimPrefix(address, "0x")
 	// Pad address to 32 bytes (left-pad with zeros)
-	paddedAddr := fmt.Sprintf("%064s", addr)
-	// Pad nonceKey to 32 bytes (left-pad with zeros)
-	paddedKey := fmt.Sprintf("%064x", nonceKey)
+	paddedAddr := leftPadHex(addr, 64)
+	// Pad nonceKey to 32 bytes (left-pad with zeros, big-endian hex)
+	paddedKey := leftPadHex(nonceKey.Text(16), 64)
 
 	callData := getNonceSelector + paddedAddr + paddedKey
 
@@ -332,4 +345,13 @@ func (c *Client) SendBatch(ctx context.Context, batch *BatchRequest) ([]*JSONRPC
 	}
 
 	return responses, nil
+}
+
+// leftPadHex left-pads a hex string with zeros to the specified length.
+// This is used to format addresses and values for ABI encoding.
+func leftPadHex(hex string, length int) string {
+	if len(hex) >= length {
+		return hex
+	}
+	return strings.Repeat("0", length-len(hex)) + hex
 }
