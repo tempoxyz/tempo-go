@@ -85,27 +85,27 @@ func main() {
 
 	// Define which nonce keys to use for parallel sends.
 	// These are fixed keys that can be reused once transactions confirm.
-	nonceKeys := []uint64{NonceKey1, NonceKey2, NonceKey3}
+	nonceKeys := []*big.Int{big.NewInt(NonceKey1), big.NewInt(NonceKey2), big.NewInt(NonceKey3)}
 
 	// Query the current nonce for each key in parallel.
-	nonces := make(map[uint64]uint64)
+	nonces := make(map[int64]uint64)
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 
 	log.Println("Fetching nonces for each key...")
 	for _, key := range nonceKeys {
 		wg.Add(1)
-		go func(nonceKey uint64) {
+		go func(nonceKey *big.Int) {
 			defer wg.Done()
 			nonce, err := rpcClient.GetNonce(ctx, sgn.Address().Hex(), nonceKey)
 			if err != nil {
-				log.Printf("Failed to get nonce for key %d: %v", nonceKey, err)
+				log.Printf("Failed to get nonce for key %d: %v", nonceKey.Int64(), err)
 				return
 			}
 			mu.Lock()
-			nonces[nonceKey] = nonce
+			nonces[nonceKey.Int64()] = nonce
 			mu.Unlock()
-			log.Printf("Nonce for key %d: %d", nonceKey, nonce)
+			log.Printf("Nonce for key %d: %d", nonceKey.Int64(), nonce)
 		}(key)
 	}
 	wg.Wait()
@@ -121,11 +121,11 @@ func main() {
 	log.Println("Sending transactions in parallel...")
 	for _, nonceKey := range nonceKeys {
 		wg.Add(1)
-		go func(key uint64, nonce uint64) {
+		go func(key *big.Int, nonce uint64) {
 			defer wg.Done()
 
 			tx := transaction.NewBuilder(big.NewInt(chainID)).
-				SetNonceKey(big.NewInt(int64(key))).
+				SetNonceKey(key).
 				SetNonce(nonce).
 				SetGas(100000).
 				SetMaxFeePerGas(big.NewInt(10000000000)).
@@ -152,8 +152,8 @@ func main() {
 			}
 
 			results <- txHash
-			log.Printf("Transaction with nonce key %d sent: %s", key, txHash)
-		}(nonceKey, nonces[nonceKey])
+			log.Printf("Transaction with nonce key %d sent: %s", key.Int64(), txHash)
+		}(nonceKey, nonces[nonceKey.Int64()])
 	}
 
 	wg.Wait()

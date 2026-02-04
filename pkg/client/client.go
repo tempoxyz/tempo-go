@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/big"
 	"net/http"
 	"strconv"
 	"strings"
@@ -221,14 +222,18 @@ const nonceManagerAddress = "0x4e4F4E4345000000000000000000000000000000"
 
 // GetNonce gets the nonce for an address and nonce key using the Nonce Manager contract.
 // This is used for Tempo's 2D nonce system which enables parallel transaction submission.
-// Use nonceKey > 0 for parallel lanes; key 0 is the protocol nonce (use GetTransactionCount instead).
-func (c *Client) GetNonce(ctx context.Context, address string, nonceKey uint64) (uint64, error) {
+// The nonceKey is a 192-bit value; use nonceKey > 0 for parallel lanes.
+// Key 0 is the protocol nonce (use GetTransactionCount instead).
+func (c *Client) GetNonce(ctx context.Context, address string, nonceKey *big.Int) (uint64, error) {
+	if nonceKey == nil {
+		nonceKey = big.NewInt(0)
+	}
 	// Build the call data: selector + address (32 bytes) + nonceKey (32 bytes)
 	addr := strings.TrimPrefix(address, "0x")
 	// Pad address to 32 bytes (left-pad with zeros)
 	paddedAddr := fmt.Sprintf("%064s", addr)
-	// Pad nonceKey to 32 bytes (left-pad with zeros)
-	paddedKey := fmt.Sprintf("%064x", nonceKey)
+	// Pad nonceKey to 32 bytes (left-pad with zeros, big-endian hex)
+	paddedKey := fmt.Sprintf("%064s", nonceKey.Text(16))
 
 	callData := getNonceSelector + paddedAddr + paddedKey
 
