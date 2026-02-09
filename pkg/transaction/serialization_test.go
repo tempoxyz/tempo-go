@@ -619,15 +619,39 @@ func TestRoundtripWithOptions(t *testing.T) {
 	})
 }
 
-func TestDeserialize_OversizedSignature(t *testing.T) {
+func TestDeserialize_OversizedFields(t *testing.T) {
 	big33Bytes := new(big.Int).Lsh(big.NewInt(1), 256) // 33 bytes
 
 	tests := []struct {
-		name       string
-		r          []byte
-		s          []byte
-		wantErrStr string
+		name        string
+		gas         []byte
+		nonce       []byte
+		validBefore []byte
+		validAfter  []byte
+		r           []byte
+		s           []byte
+		wantErrStr  string
 	}{
+		{
+			name:       "oversized gas",
+			gas:        big33Bytes.Bytes(),
+			wantErrStr: "gas exceeds uint64 maximum",
+		},
+		{
+			name:       "oversized nonce",
+			nonce:      big33Bytes.Bytes(),
+			wantErrStr: "nonce exceeds uint64 maximum",
+		},
+		{
+			name:        "oversized validBefore",
+			validBefore: big33Bytes.Bytes(),
+			wantErrStr:  "validBefore exceeds uint64 maximum",
+		},
+		{
+			name:       "oversized validAfter",
+			validAfter: big33Bytes.Bytes(),
+			wantErrStr: "validAfter exceeds uint64 maximum",
+		},
 		{
 			name:       "oversized R in fee payer signature",
 			r:          big33Bytes.Bytes(),
@@ -648,7 +672,7 @@ func TestDeserialize_OversizedSignature(t *testing.T) {
 				big.NewInt(42424).Bytes(),   // chainId
 				big.NewInt(1000000).Bytes(), // maxPriorityFeePerGas
 				big.NewInt(2000000).Bytes(), // maxFeePerGas
-				big.NewInt(21000).Bytes(),   // gas
+				tt.gas,                      // gas
 				[]interface{}{ // calls
 					[]interface{}{
 						common.HexToAddress("0x1234567890123456789012345678901234567890").Bytes(),
@@ -656,12 +680,12 @@ func TestDeserialize_OversizedSignature(t *testing.T) {
 						[]byte{},
 					},
 				},
-				[]interface{}{},       // accessList
-				[]byte{},              // nonceKey
-				big.NewInt(1).Bytes(), // nonce
-				[]byte{},              // validBefore
-				[]byte{},              // validAfter
-				[]byte{},              // feeToken
+				[]interface{}{}, // accessList
+				[]byte{},        // nonceKey
+				tt.nonce,        // nonce
+				tt.validBefore,  // validBefore
+				tt.validAfter,   // validAfter
+				[]byte{},        // feeToken
 				[]interface{}{ // fee payer signature
 					[]byte{0},
 					tt.r,

@@ -2,6 +2,7 @@ package transaction
 
 import (
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math/big"
 	"strings"
@@ -95,7 +96,11 @@ func Deserialize(serialized string) (*Tx, error) {
 
 	// Field 3: gas
 	if gas, ok := raw[3].([]byte); ok && len(gas) > 0 {
-		tx.Gas = new(big.Int).SetBytes(gas).Uint64()
+		v, err := bytesToUint64(gas)
+		if err != nil {
+			return nil, fmt.Errorf("gas %v", err)
+		}
+		tx.Gas = v
 	}
 
 	// Field 4: calls - array of [to, value, data] tuples
@@ -123,17 +128,29 @@ func Deserialize(serialized string) (*Tx, error) {
 
 	// Field 7: nonce
 	if nonce, ok := raw[7].([]byte); ok && len(nonce) > 0 {
-		tx.Nonce = new(big.Int).SetBytes(nonce).Uint64()
+		v, err := bytesToUint64(nonce)
+		if err != nil {
+			return nil, fmt.Errorf("nonce %v", err)
+		}
+		tx.Nonce = v
 	}
 
 	// Field 8: validBefore
 	if validBefore, ok := raw[8].([]byte); ok && len(validBefore) > 0 {
-		tx.ValidBefore = new(big.Int).SetBytes(validBefore).Uint64()
+		v, err := bytesToUint64(validBefore)
+		if err != nil {
+			return nil, fmt.Errorf("validBefore %v", err)
+		}
+		tx.ValidBefore = v
 	}
 
 	// Field 9: validAfter
 	if validAfter, ok := raw[9].([]byte); ok && len(validAfter) > 0 {
-		tx.ValidAfter = new(big.Int).SetBytes(validAfter).Uint64()
+		v, err := bytesToUint64(validAfter)
+		if err != nil {
+			return nil, fmt.Errorf("validAfter %v", err)
+		}
+		tx.ValidAfter = v
 	}
 
 	// Field 10: feeToken
@@ -391,4 +408,13 @@ func decodeSignatureEnvelope(envelopeBytes []byte) (*signer.SignatureEnvelope, e
 	default:
 		return nil, fmt.Errorf("unknown signature type prefix: 0x%02x", typePrefix)
 	}
+}
+
+// bytesToUint64 converts a byte slice to uint64, returning an error if it exceeds uint64 range.
+func bytesToUint64(b []byte) (uint64, error) {
+	v := new(big.Int).SetBytes(b)
+	if !v.IsUint64() {
+		return 0, errors.New("exceeds uint64 maximum")
+	}
+	return v.Uint64(), nil
 }
