@@ -132,37 +132,58 @@ func (tc *testContext) waitForBalance(address common.Address) {
 // devKeyPrivate is the well-known dev account private key used for local devnet funding.
 const devKeyPrivate = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 
+// erc20TransferSelector is the function selector for transfer(address,uint256).
+var erc20TransferSelector = mustDecodeHex("a9059cbb")
+
 // fundAddress funds an address and waits for tx receipts and balance confirmation.
 // It first tries tempo_fundAddress (available on testnet), then falls back to a
-// direct Tempo tx transfer from the dev account (for local Docker devnets).
+// TIP-20 transfer from the dev account (for local Docker devnets).
 func (tc *testContext) fundAddress(address common.Address) {
 	tc.t.Helper()
 
 	// Try tempo_fundAddress first
 	resp, err := tc.client.SendRequest(tc.ctx, "tempo_fundAddress", address.Hex())
-	if err == nil && resp.Error == nil {
-		if result, ok := resp.Result.([]interface{}); ok && len(result) > 0 {
-			tc.t.Logf("Funded address %s via tempo_fundAddress", address.Hex())
-			for _, h := range result {
-				if hash, ok := h.(string); ok {
-					tc.waitForReceipt(hash)
+	if err == nil && resp.Error == nil && resp.Result != nil {
+		switch result := resp.Result.(type) {
+		case []interface{}:
+			if len(result) > 0 {
+				tc.t.Logf("Funded address %s via tempo_fundAddress", address.Hex())
+				for _, h := range result {
+					if hash, ok := h.(string); ok {
+						tc.waitForReceipt(hash)
+					}
 				}
+				tc.waitForBalance(address)
+				return
 			}
-			tc.waitForBalance(address)
-			return
+		case string:
+			if result != "" {
+				tc.t.Logf("Funded address %s via tempo_fundAddress", address.Hex())
+				tc.waitForReceipt(result)
+				tc.waitForBalance(address)
+				return
+			}
 		}
 	}
 
-	// Fallback: fund via direct Tempo tx from the dev account
-	tc.t.Logf("tempo_fundAddress unavailable, funding %s via dev account transfer", address.Hex())
+	// Fallback: fund via TIP-20 transfer from the dev account
+	tc.t.Logf("tempo_fundAddress unavailable, funding %s via dev account TIP-20 transfer", address.Hex())
 	devSigner, err := signer.NewSigner(devKeyPrivate)
 	require.NoError(tc.t, err)
+
+	// Build ERC-20 transfer(address,uint256) calldata to the native fee token
+	fundAmount := new(big.Int).Mul(big.NewInt(1000000000), big.NewInt(1000000000)) // 1e18
+	transferCalldata := encodeCalldata(
+		erc20TransferSelector,
+		addressToBytes32(address),
+		uint256ToBytes32(fundAmount),
+	)
 
 	nonce := tc.getNonce(devSigner.Address())
 	tx := tc.newTxBuilder().
 		SetNonce(nonce).
 		SetGas(100000).
-		AddCall(address, big.NewInt(0), nil).
+		AddCall(nativeFeeToken, big.NewInt(0), transferCalldata).
 		Build()
 
 	err = transaction.SignTransaction(tx, devSigner)
@@ -613,6 +634,49 @@ func TestIntegration_AccessKeys(t *testing.T) {
 	})
 }
 
+// callGetKey calls the getKey precompile and returns the raw result bytes.
+func (tc *testContext) callGetKey(account, keyId common.Address) []byte {
+	tc.t.Helper()
+	getKeyCalldata := encodeCalldata(
+		getKeySelector,
+		addressToBytes32(account),
+		addressToBytes32(keyId),
+	)
+
+	resp, err := tc.client.SendRequest(tc.ctx, "eth_call", map[string]interface{}{
+		"to":   accountKeychain.Hex(),
+		"data": "0x" + hex.EncodeToString(getKeyCalldata),
+	}, "latest")
+	require.NoError(tc.t, err)
+	require.Nil(tc.t, resp.Error, "eth_call failed: %v", resp.Error)
+
+	result, ok := resp.Result.(string)
+	require.True(tc.t, ok, "expected string result")
+	require.True(tc.t, len(result) > 2, "expected non-empty result from getKey")
+
+	resultBytes, err := hex.DecodeString(strings.TrimPrefix(result, "0x"))
+	require.NoError(tc.t, err)
+	require.True(tc.t, len(resultBytes) >= 160, "getKey result too short, expected >= 160 bytes, got %d", len(resultBytes))
+	return resultBytes
+}
+
+// parseKeyInfoKeyId extracts the keyId from a getKey result.
+// KeyInfo layout: signatureType (32) | keyId (32) | expiry (32) | enforceLimits (32) | isRevoked (32)
+func parseKeyInfoKeyId(resultBytes []byte) common.Address {
+	return common.BytesToAddress(resultBytes[32+12 : 64])
+}
+
+// parseKeyInfoIsRevoked extracts the isRevoked boolean from a getKey result.
+func parseKeyInfoIsRevoked(resultBytes []byte) bool {
+	// isRevoked is the 5th word (offset 128-160); treat any non-zero value as true
+	for _, b := range resultBytes[128:160] {
+		if b != 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // TestIntegration_KeychainSelectors tests that keychain selectors work against the precompile
 func TestIntegration_KeychainSelectors(t *testing.T) {
 	tc := newTestContext(t)
@@ -622,18 +686,21 @@ func TestIntegration_KeychainSelectors(t *testing.T) {
 	require.NoError(t, err)
 	accessKey := signer.NewSignerFromKey(accessKeyPriv)
 
+	// Use a far-future expiry (10 years from now)
+	expiry := time.Now().Add(10 * 365 * 24 * time.Hour).Unix()
+
 	t.Logf("Root account: %s", rootAccount.Address().Hex())
 	t.Logf("Access key: %s", accessKey.Address().Hex())
 
-	// Step 1: Authorize the key using a Tempo tx
+	// Step 1: Authorize the key with enforceLimits=false, empty TokenLimit[]
 	authCalldata := encodeCalldata(
 		authorizeKeySelector,
 		addressToBytes32(accessKey.Address()),
 		padLeft32([]byte{0}), // Secp256k1
-		uint256ToBytes32(big.NewInt(1893456000)),
+		uint256ToBytes32(big.NewInt(expiry)),
 		padLeft32([]byte{0}), // enforceLimits = false
-		uint256ToBytes32(big.NewInt(0xa0)),
-		uint256ToBytes32(big.NewInt(0)),
+		uint256ToBytes32(big.NewInt(0xa0)), // offset to dynamic array
+		uint256ToBytes32(big.NewInt(0)),     // array length = 0
 	)
 
 	authTx := tc.newTxBuilder().
@@ -652,32 +719,11 @@ func TestIntegration_KeychainSelectors(t *testing.T) {
 
 	// Step 2: Call getKey to verify the key was stored
 	t.Run("GetKey", func(t *testing.T) {
-		getKeyCalldata := encodeCalldata(
-			getKeySelector,
-			addressToBytes32(rootAccount.Address()),
-			addressToBytes32(accessKey.Address()),
-		)
+		resultBytes := tc.callGetKey(rootAccount.Address(), accessKey.Address())
 
-		resp, err := tc.client.SendRequest(tc.ctx, "eth_call", map[string]interface{}{
-			"to":   accountKeychain.Hex(),
-			"data": "0x" + hex.EncodeToString(getKeyCalldata),
-		}, "latest")
-		require.NoError(t, err)
-		require.Nil(t, resp.Error, "eth_call failed: %v", resp.Error)
-
-		result, ok := resp.Result.(string)
-		require.True(t, ok, "expected string result")
-		require.True(t, len(result) > 2, "expected non-empty result from getKey")
-
-		resultBytes, err := hex.DecodeString(strings.TrimPrefix(result, "0x"))
-		require.NoError(t, err)
-		require.True(t, len(resultBytes) >= 32, "getKey result too short")
-
-		// The KeyInfo struct contains keyId — verify it matches
-		// KeyInfo layout: signatureType (32) | keyId (32) | expiry (32) | enforceLimits (32) | isRevoked (32)
-		keyIdBytes := resultBytes[32:64]
-		recoveredKeyId := common.BytesToAddress(keyIdBytes[12:32])
+		recoveredKeyId := parseKeyInfoKeyId(resultBytes)
 		assert.Equal(t, accessKey.Address(), recoveredKeyId, "getKey returned wrong keyId")
+		assert.False(t, parseKeyInfoIsRevoked(resultBytes), "key should not be revoked yet")
 
 		t.Logf("getKey returned keyId: %s", recoveredKeyId.Hex())
 	})
@@ -702,33 +748,97 @@ func TestIntegration_KeychainSelectors(t *testing.T) {
 
 		time.Sleep(2 * time.Second)
 
-		// Verify key is now revoked via getKey
-		getKeyCalldata := encodeCalldata(
-			getKeySelector,
-			addressToBytes32(rootAccount.Address()),
-			addressToBytes32(accessKey.Address()),
-		)
+		resultBytes := tc.callGetKey(rootAccount.Address(), accessKey.Address())
+		assert.True(t, parseKeyInfoIsRevoked(resultBytes), "expected key to be revoked")
 
-		resp, err := tc.client.SendRequest(tc.ctx, "eth_call", map[string]interface{}{
-			"to":   accountKeychain.Hex(),
-			"data": "0x" + hex.EncodeToString(getKeyCalldata),
-		}, "latest")
-		require.NoError(t, err)
-		require.Nil(t, resp.Error)
-
-		result, ok := resp.Result.(string)
-		require.True(t, ok)
-
-		resultBytes, err := hex.DecodeString(strings.TrimPrefix(result, "0x"))
-		require.NoError(t, err)
-
-		// isRevoked is the 5th field (offset 128-160)
-		if len(resultBytes) >= 160 {
-			isRevoked := resultBytes[159]
-			assert.Equal(t, uint8(1), isRevoked, "expected key to be revoked")
-			t.Logf("Key revoked successfully, isRevoked=%d", isRevoked)
-		}
+		t.Logf("Key revoked successfully")
 	})
+}
+
+// TestIntegration_KeychainWithLimits tests authorizeKey with enforceLimits=true and a non-empty TokenLimit[]
+func TestIntegration_KeychainWithLimits(t *testing.T) {
+	tc := newTestContext(t)
+
+	rootAccount := tc.createAndFundSigner()
+	accessKeyPriv, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	accessKey := signer.NewSignerFromKey(accessKeyPriv)
+
+	expiry := time.Now().Add(10 * 365 * 24 * time.Hour).Unix()
+	limitAmount := new(big.Int).Mul(big.NewInt(1000), big.NewInt(1e18)) // 1000 tokens
+
+	t.Logf("Root account: %s", rootAccount.Address().Hex())
+	t.Logf("Access key: %s", accessKey.Address().Hex())
+
+	// Authorize with enforceLimits=true and one TokenLimit for nativeFeeToken
+	// ABI layout for dynamic array:
+	//   head: keyId (32) | sigType (32) | expiry (32) | enforceLimits (32) | offset (32)
+	//   tail: length (32) | element[0].token (32) | element[0].amount (32)
+	authCalldata := encodeCalldata(
+		authorizeKeySelector,
+		addressToBytes32(accessKey.Address()),
+		padLeft32([]byte{0}),                // Secp256k1
+		uint256ToBytes32(big.NewInt(expiry)),
+		padLeft32([]byte{1}),                // enforceLimits = true
+		uint256ToBytes32(big.NewInt(0xa0)),   // offset to dynamic array (5 * 32 = 160 = 0xa0)
+		uint256ToBytes32(big.NewInt(1)),      // array length = 1
+		addressToBytes32(nativeFeeToken),     // limits[0].token
+		uint256ToBytes32(limitAmount),        // limits[0].amount
+	)
+
+	authTx := tc.newTxBuilder().
+		SetNonce(tc.getNonce(rootAccount.Address())).
+		SetGas(600000).
+		AddCall(accountKeychain, big.NewInt(0), authCalldata).
+		Build()
+
+	err = transaction.SignTransaction(authTx, rootAccount)
+	require.NoError(t, err)
+
+	receipt := tc.sendTxExpectSuccess(authTx, "Authorization with limits tx failed")
+	require.NotNil(t, receipt)
+
+	time.Sleep(3 * time.Second)
+
+	// Verify key was stored with enforceLimits=true
+	resultBytes := tc.callGetKey(rootAccount.Address(), accessKey.Address())
+	recoveredKeyId := parseKeyInfoKeyId(resultBytes)
+	assert.Equal(t, accessKey.Address(), recoveredKeyId, "getKey returned wrong keyId")
+
+	// enforceLimits is the 4th word (offset 96-128)
+	enforceLimits := false
+	for _, b := range resultBytes[96:128] {
+		if b != 0 {
+			enforceLimits = true
+			break
+		}
+	}
+	assert.True(t, enforceLimits, "expected enforceLimits to be true")
+
+	// Verify spending limit via getRemainingLimit
+	getRemainingCalldata := encodeCalldata(
+		mustDecodeHex("63b4290d"), // getRemainingLimit(address,address,address)
+		addressToBytes32(rootAccount.Address()),
+		addressToBytes32(accessKey.Address()),
+		addressToBytes32(nativeFeeToken),
+	)
+
+	resp, err := tc.client.SendRequest(tc.ctx, "eth_call", map[string]interface{}{
+		"to":   accountKeychain.Hex(),
+		"data": "0x" + hex.EncodeToString(getRemainingCalldata),
+	}, "latest")
+	require.NoError(t, err)
+	require.Nil(t, resp.Error, "getRemainingLimit eth_call failed: %v", resp.Error)
+
+	result, ok := resp.Result.(string)
+	require.True(t, ok, "expected string result from getRemainingLimit")
+
+	remainingBytes, err := hex.DecodeString(strings.TrimPrefix(result, "0x"))
+	require.NoError(t, err)
+	remaining := new(big.Int).SetBytes(remainingBytes)
+	assert.Equal(t, limitAmount, remaining, "remaining limit should match configured amount")
+
+	t.Logf("getRemainingLimit returned: %s", remaining.String())
 }
 
 // TestIntegration_BatchTransactions tests transactions with multiple calls
