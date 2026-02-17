@@ -40,6 +40,8 @@ var (
 	mintSelector         = mustDecodeHex("f1aa8cb8")
 	setUserTokenSelector = mustDecodeHex("e7897444")
 	authorizeKeySelector = mustDecodeHex("54063a55")
+	getKeySelector       = mustDecodeHex("bc298553")
+	revokeKeySelector    = mustDecodeHex("5ae7ab32")
 )
 
 func mustDecodeHex(s string) []byte {
@@ -127,29 +129,53 @@ func (tc *testContext) waitForBalance(address common.Address) {
 	tc.t.Fatalf("Failed to get balance for %s after 30s", address.Hex())
 }
 
-// fundAddress funds an address and waits for tx receipts and balance confirmation
+// devKeyPrivate is the well-known dev account private key used for local devnet funding.
+const devKeyPrivate = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+
+// fundAddress funds an address and waits for tx receipts and balance confirmation.
+// It first tries tempo_fundAddress (available on testnet), then falls back to a
+// direct Tempo tx transfer from the dev account (for local Docker devnets).
 func (tc *testContext) fundAddress(address common.Address) {
 	tc.t.Helper()
-	var txHashes []string
-	for i := 0; i < 100; i++ {
-		resp, err := tc.client.SendRequest(tc.ctx, "tempo_fundAddress", address.Hex())
-		if err == nil && resp.Error == nil {
-			if result, ok := resp.Result.([]interface{}); ok && len(result) > 0 {
-				tc.t.Logf("Funded address %s", address.Hex())
-				for _, h := range result {
-					if hash, ok := h.(string); ok {
-						txHashes = append(txHashes, hash)
-					}
+
+	// Try tempo_fundAddress first
+	resp, err := tc.client.SendRequest(tc.ctx, "tempo_fundAddress", address.Hex())
+	if err == nil && resp.Error == nil {
+		if result, ok := resp.Result.([]interface{}); ok && len(result) > 0 {
+			tc.t.Logf("Funded address %s via tempo_fundAddress", address.Hex())
+			for _, h := range result {
+				if hash, ok := h.(string); ok {
+					tc.waitForReceipt(hash)
 				}
-				break
 			}
+			tc.waitForBalance(address)
+			return
 		}
-		time.Sleep(200 * time.Millisecond)
 	}
-	// Wait for all funding tx receipts to ensure state is confirmed
-	for _, txHash := range txHashes {
-		tc.waitForReceipt(txHash)
-	}
+
+	// Fallback: fund via direct Tempo tx from the dev account
+	tc.t.Logf("tempo_fundAddress unavailable, funding %s via dev account transfer", address.Hex())
+	devSigner, err := signer.NewSigner(devKeyPrivate)
+	require.NoError(tc.t, err)
+
+	nonce := tc.getNonce(devSigner.Address())
+	tx := tc.newTxBuilder().
+		SetNonce(nonce).
+		SetGas(100000).
+		AddCall(address, big.NewInt(0), nil).
+		Build()
+
+	err = transaction.SignTransaction(tx, devSigner)
+	require.NoError(tc.t, err)
+
+	serialized, err := transaction.Serialize(tx, nil)
+	require.NoError(tc.t, err)
+
+	txHash, err := tc.client.SendRawTransaction(tc.ctx, serialized)
+	require.NoError(tc.t, err)
+	tc.t.Logf("Funding tx hash: %s", txHash)
+
+	tc.waitForReceipt(txHash)
 	tc.waitForBalance(address)
 }
 
@@ -584,6 +610,124 @@ func TestIntegration_AccessKeys(t *testing.T) {
 		assert.Equal(t, rootAccount.Address(), recoveredRoot)
 
 		tc.sendTxExpectSuccess(tx, "Access key transaction failed")
+	})
+}
+
+// TestIntegration_KeychainSelectors tests that keychain selectors work against the precompile
+func TestIntegration_KeychainSelectors(t *testing.T) {
+	tc := newTestContext(t)
+
+	rootAccount := tc.createAndFundSigner()
+	accessKeyPriv, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	accessKey := signer.NewSignerFromKey(accessKeyPriv)
+
+	t.Logf("Root account: %s", rootAccount.Address().Hex())
+	t.Logf("Access key: %s", accessKey.Address().Hex())
+
+	// Step 1: Authorize the key using a Tempo tx
+	authCalldata := encodeCalldata(
+		authorizeKeySelector,
+		addressToBytes32(accessKey.Address()),
+		padLeft32([]byte{0}), // Secp256k1
+		uint256ToBytes32(big.NewInt(1893456000)),
+		padLeft32([]byte{0}), // enforceLimits = false
+		uint256ToBytes32(big.NewInt(0xa0)),
+		uint256ToBytes32(big.NewInt(0)),
+	)
+
+	authTx := tc.newTxBuilder().
+		SetNonce(tc.getNonce(rootAccount.Address())).
+		SetGas(600000).
+		AddCall(accountKeychain, big.NewInt(0), authCalldata).
+		Build()
+
+	err = transaction.SignTransaction(authTx, rootAccount)
+	require.NoError(t, err)
+
+	receipt := tc.sendTxExpectSuccess(authTx, "Authorization tx failed")
+	require.NotNil(t, receipt)
+
+	time.Sleep(3 * time.Second)
+
+	// Step 2: Call getKey to verify the key was stored
+	t.Run("GetKey", func(t *testing.T) {
+		getKeyCalldata := encodeCalldata(
+			getKeySelector,
+			addressToBytes32(rootAccount.Address()),
+			addressToBytes32(accessKey.Address()),
+		)
+
+		resp, err := tc.client.SendRequest(tc.ctx, "eth_call", map[string]interface{}{
+			"to":   accountKeychain.Hex(),
+			"data": "0x" + hex.EncodeToString(getKeyCalldata),
+		}, "latest")
+		require.NoError(t, err)
+		require.Nil(t, resp.Error, "eth_call failed: %v", resp.Error)
+
+		result, ok := resp.Result.(string)
+		require.True(t, ok, "expected string result")
+		require.True(t, len(result) > 2, "expected non-empty result from getKey")
+
+		resultBytes, err := hex.DecodeString(strings.TrimPrefix(result, "0x"))
+		require.NoError(t, err)
+		require.True(t, len(resultBytes) >= 32, "getKey result too short")
+
+		// The KeyInfo struct contains keyId — verify it matches
+		// KeyInfo layout: signatureType (32) | keyId (32) | expiry (32) | enforceLimits (32) | isRevoked (32)
+		keyIdBytes := resultBytes[32:64]
+		recoveredKeyId := common.BytesToAddress(keyIdBytes[12:32])
+		assert.Equal(t, accessKey.Address(), recoveredKeyId, "getKey returned wrong keyId")
+
+		t.Logf("getKey returned keyId: %s", recoveredKeyId.Hex())
+	})
+
+	// Step 3: Revoke the key and verify
+	t.Run("RevokeKey", func(t *testing.T) {
+		revokeCalldata := encodeCalldata(
+			revokeKeySelector,
+			addressToBytes32(accessKey.Address()),
+		)
+
+		revokeTx := tc.newTxBuilder().
+			SetNonce(tc.getNonce(rootAccount.Address())).
+			SetGas(600000).
+			AddCall(accountKeychain, big.NewInt(0), revokeCalldata).
+			Build()
+
+		err := transaction.SignTransaction(revokeTx, rootAccount)
+		require.NoError(t, err)
+
+		tc.sendTxExpectSuccess(revokeTx, "Revoke tx failed")
+
+		time.Sleep(2 * time.Second)
+
+		// Verify key is now revoked via getKey
+		getKeyCalldata := encodeCalldata(
+			getKeySelector,
+			addressToBytes32(rootAccount.Address()),
+			addressToBytes32(accessKey.Address()),
+		)
+
+		resp, err := tc.client.SendRequest(tc.ctx, "eth_call", map[string]interface{}{
+			"to":   accountKeychain.Hex(),
+			"data": "0x" + hex.EncodeToString(getKeyCalldata),
+		}, "latest")
+		require.NoError(t, err)
+		require.Nil(t, resp.Error)
+
+		result, ok := resp.Result.(string)
+		require.True(t, ok)
+
+		resultBytes, err := hex.DecodeString(strings.TrimPrefix(result, "0x"))
+		require.NoError(t, err)
+
+		// isRevoked is the 5th field (offset 128-160)
+		if len(resultBytes) >= 160 {
+			isRevoked := resultBytes[159]
+			assert.Equal(t, uint8(1), isRevoked, "expected key to be revoked")
+			t.Logf("Key revoked successfully, isRevoked=%d", isRevoked)
+		}
 	})
 }
 

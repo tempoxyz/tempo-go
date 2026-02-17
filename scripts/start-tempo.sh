@@ -4,11 +4,16 @@ set -e
 echo "Starting Tempo node..."
 
 tempo node --dev \
+  --dev.block-time 1sec \
   --http \
   --http.addr 0.0.0.0 \
   --http.port 8545 \
-  --http.api eth,net,web3,txpool,trace \
-  --chain dev &
+  --http.api all \
+  --chain dev \
+  --faucet.enabled \
+  --faucet.private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \
+  --faucet.amount 1000000000000000 \
+  --faucet.address 0x20c0000000000000000000000000000000000000 &
 
 NODE_PID=$!
 

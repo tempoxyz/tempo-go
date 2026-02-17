@@ -58,11 +58,20 @@ func GetKeychainAddress() common.Address {
 	return common.HexToAddress(AccountKeychainAddress)
 }
 
-// AuthorizeKeySelector is the function selector for authorizeKey.
-const AuthorizeKeySelector = "0x..." // TODO: Add actual selector
+// AuthorizeKeySelector is the function selector for authorizeKey(address,uint8,uint64,bool,(address,uint256)[]).
+const AuthorizeKeySelector = "0x54063a55"
 
-// RevokeKeySelector is the function selector for revokeKey.
-const RevokeKeySelector = "0x..." // TODO: Add actual selector
+// RevokeKeySelector is the function selector for revokeKey(address).
+const RevokeKeySelector = "0x5ae7ab32"
+
+// UpdateSpendingLimitSelector is the function selector for updateSpendingLimit(address,address,uint256).
+const UpdateSpendingLimitSelector = "0xcbbb4480"
+
+// GetKeySelector is the function selector for getKey(address,address).
+const GetKeySelector = "0xbc298553"
+
+// GetTransactionKeySelector is the function selector for getTransactionKey().
+const GetTransactionKeySelector = "0xb07fbc1a"
 
 // SpendingLimit represents a per-token spending limit for an access key.
 type SpendingLimit struct {

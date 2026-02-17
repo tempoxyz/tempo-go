@@ -1,10 +1,12 @@
 package keychain
 
 import (
+	"encoding/hex"
 	"math/big"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/tempoxyz/tempo-go/pkg/signer"
 	"github.com/tempoxyz/tempo-go/pkg/transaction"
 )
@@ -227,6 +229,36 @@ func TestIsKeychainSignature(t *testing.T) {
 	wrongLength[0] = KeychainSignatureType
 	if IsKeychainSignature(wrongLength) {
 		t.Error("expected false for wrong length")
+	}
+}
+
+// computeSelector computes the 4-byte function selector from a canonical Solidity signature.
+func computeSelector(sig string) string {
+	hash := crypto.Keccak256([]byte(sig))
+	return "0x" + hex.EncodeToString(hash[:4])
+}
+
+func TestFunctionSelectors(t *testing.T) {
+	tests := []struct {
+		name     string
+		selector string
+		sig      string
+	}{
+		{"GetRemainingLimit", GetRemainingLimitSelector, "getRemainingLimit(address,address,address)"},
+		{"AuthorizeKey", AuthorizeKeySelector, "authorizeKey(address,uint8,uint64,bool,(address,uint256)[])"},
+		{"RevokeKey", RevokeKeySelector, "revokeKey(address)"},
+		{"UpdateSpendingLimit", UpdateSpendingLimitSelector, "updateSpendingLimit(address,address,uint256)"},
+		{"GetKey", GetKeySelector, "getKey(address,address)"},
+		{"GetTransactionKey", GetTransactionKeySelector, "getTransactionKey()"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := computeSelector(tt.sig)
+			if got != tt.selector {
+				t.Errorf("selector mismatch for %s: expected %s, got %s", tt.sig, tt.selector, got)
+			}
+		})
 	}
 }
 
