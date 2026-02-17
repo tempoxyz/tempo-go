@@ -39,9 +39,9 @@ var (
 	incrementSelector    = mustDecodeHex("d09de08a")
 	mintSelector         = mustDecodeHex("f1aa8cb8")
 	setUserTokenSelector = mustDecodeHex("e7897444")
-	authorizeKeySelector = mustDecodeHex("54063a55")
-	getKeySelector       = mustDecodeHex("bc298553")
-	revokeKeySelector    = mustDecodeHex("5ae7ab32")
+	authorizeKeySelector = mustDecodeSelector(keychain.AuthorizeKeySelector)
+	getKeySelector       = mustDecodeSelector(keychain.GetKeySelector)
+	revokeKeySelector    = mustDecodeSelector(keychain.RevokeKeySelector)
 )
 
 func mustDecodeHex(s string) []byte {
@@ -50,6 +50,11 @@ func mustDecodeHex(s string) []byte {
 		panic(err)
 	}
 	return b
+}
+
+// mustDecodeSelector strips the "0x" prefix from a selector constant and decodes it.
+func mustDecodeSelector(sel string) []byte {
+	return mustDecodeHex(strings.TrimPrefix(sel, "0x"))
 }
 
 var rpcURL string
@@ -822,7 +827,7 @@ func TestIntegration_KeychainWithLimits(t *testing.T) {
 
 	// Verify spending limit via getRemainingLimit
 	getRemainingCalldata := encodeCalldata(
-		mustDecodeHex("63b4290d"), // getRemainingLimit(address,address,address)
+		mustDecodeSelector(keychain.GetRemainingLimitSelector),
 		addressToBytes32(rootAccount.Address()),
 		addressToBytes32(accessKey.Address()),
 		addressToBytes32(nativeFeeToken),
