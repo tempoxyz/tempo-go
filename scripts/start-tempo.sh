@@ -3,14 +3,12 @@ set -e
 
 echo "Starting Tempo node..."
 
-TEMPO_HTTP_ADDR="${TEMPO_HTTP_ADDR:-127.0.0.1}"
-
 tempo node --dev \
   --dev.block-time 1sec \
   --http \
-  --http.addr "$TEMPO_HTTP_ADDR" \
+  --http.addr 0.0.0.0 \
   --http.port 8545 \
-  --http.api eth,net,web3,txpool,trace,tempo \
+  --http.api all \
   --chain dev \
   --faucet.enabled \
   --faucet.private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \
