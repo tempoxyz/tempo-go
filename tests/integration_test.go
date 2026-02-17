@@ -698,9 +698,9 @@ func TestIntegration_KeychainSelectors(t *testing.T) {
 		addressToBytes32(accessKey.Address()),
 		padLeft32([]byte{0}), // Secp256k1
 		uint256ToBytes32(big.NewInt(expiry)),
-		padLeft32([]byte{0}), // enforceLimits = false
+		padLeft32([]byte{0}),               // enforceLimits = false
 		uint256ToBytes32(big.NewInt(0xa0)), // offset to dynamic array
-		uint256ToBytes32(big.NewInt(0)),     // array length = 0
+		uint256ToBytes32(big.NewInt(0)),    // array length = 0
 	)
 
 	authTx := tc.newTxBuilder().
@@ -777,13 +777,13 @@ func TestIntegration_KeychainWithLimits(t *testing.T) {
 	authCalldata := encodeCalldata(
 		authorizeKeySelector,
 		addressToBytes32(accessKey.Address()),
-		padLeft32([]byte{0}),                // Secp256k1
+		padLeft32([]byte{0}), // Secp256k1
 		uint256ToBytes32(big.NewInt(expiry)),
-		padLeft32([]byte{1}),                // enforceLimits = true
-		uint256ToBytes32(big.NewInt(0xa0)),   // offset to dynamic array (5 * 32 = 160 = 0xa0)
-		uint256ToBytes32(big.NewInt(1)),      // array length = 1
-		addressToBytes32(nativeFeeToken),     // limits[0].token
-		uint256ToBytes32(limitAmount),        // limits[0].amount
+		padLeft32([]byte{1}),               // enforceLimits = true
+		uint256ToBytes32(big.NewInt(0xa0)), // offset to dynamic array (5 * 32 = 160 = 0xa0)
+		uint256ToBytes32(big.NewInt(1)),    // array length = 1
+		addressToBytes32(nativeFeeToken),   // limits[0].token
+		uint256ToBytes32(limitAmount),      // limits[0].amount
 	)
 
 	authTx := tc.newTxBuilder().
