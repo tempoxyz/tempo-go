@@ -92,10 +92,10 @@ var (
 	NonceManagerAddress = common.HexToAddress("0x4e4F4E4345000000000000000000000000000000")
 )
 
-// New creates a new TempoTransaction with default values.
+// New creates a new TempoTransaction with defaults for Tempo mainnet.
 func New() *Tx {
 	return &Tx{
-		ChainID:              big.NewInt(0),
+		ChainID:              big.NewInt(ChainIdMainnet),
 		MaxPriorityFeePerGas: big.NewInt(0),
 		MaxFeePerGas:         big.NewInt(0),
 		NonceKey:             big.NewInt(0),
@@ -199,7 +199,7 @@ func (tx *Tx) Hash() (common.Hash, error) {
 //
 // Example usage:
 //
-//	template := transaction.NewDefault(transaction.ChainIdMainnet)
+//	template := transaction.NewDefault(transaction.ChainIdMainnet) // or omit for mainnet
 //	template.SetGas(100000)
 //
 //	// Create variations for different recipients

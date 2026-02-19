@@ -19,7 +19,7 @@ func Example_simpleTransaction() {
 		log.Fatal(err)
 	}
 
-	tx := transaction.NewBuilder(big.NewInt(transaction.ChainIdMainnet)).
+	tx := transaction.NewBuilder().
 		SetGas(100000).
 		SetMaxFeePerGas(big.NewInt(1000000000)).
 		SetMaxPriorityFeePerGas(big.NewInt(1000000)).
@@ -48,7 +48,7 @@ func Example_feePayerTransaction() {
 	sender, _ := signer.NewSigner("0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
 	feePayer, _ := signer.NewSigner("0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d")
 
-	tx := transaction.NewBuilder(big.NewInt(transaction.ChainIdMainnet)).
+	tx := transaction.NewBuilder().
 		SetGas(100000).
 		SetMaxFeePerGas(big.NewInt(1000000000)).
 		AddCall(
@@ -75,7 +75,7 @@ func Example_feePayerTransaction() {
 
 // Example_batchTransaction demonstrates creating a transaction with multiple calls.
 func Example_batchTransaction() {
-	tx := transaction.NewBuilder(big.NewInt(transaction.ChainIdMainnet)).
+	tx := transaction.NewBuilder().
 		SetGas(200000).
 		SetMaxFeePerGas(big.NewInt(1000000000)).
 		AddCall(
@@ -104,7 +104,7 @@ func Example_clientUsage() {
 	rpcClient := client.New(transaction.RpcUrlMainnet)
 
 	sgn, _ := signer.NewSigner("0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
-	tx := transaction.NewBuilder(big.NewInt(transaction.ChainIdMainnet)).
+	tx := transaction.NewBuilder().
 		SetGas(100000).
 		SetMaxFeePerGas(big.NewInt(1000000000)).
 		AddCall(

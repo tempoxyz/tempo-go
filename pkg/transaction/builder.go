@@ -11,7 +11,7 @@ import (
 //
 // Example usage:
 //
-//	tx := transaction.NewBuilder(big.NewInt(transaction.ChainIdMainnet)).
+//	tx := transaction.NewBuilder().
 //	    SetGas(100000).
 //	    AddCall(toAddress, big.NewInt(0), data).
 //	    SetFeeToken(transaction.AlphaUSDAddress).
@@ -20,11 +20,16 @@ type Builder struct {
 	tx *Tx
 }
 
-// NewBuilder creates a new transaction builder with the given chain ID.
-func NewBuilder(chainID *big.Int) *Builder {
+// NewBuilder creates a new transaction builder. Defaults to Tempo mainnet.
+// An optional chain ID can be provided to target a different network.
+func NewBuilder(chainID ...*big.Int) *Builder {
+	cid := big.NewInt(ChainIdMainnet)
+	if len(chainID) > 0 && chainID[0] != nil {
+		cid = chainID[0]
+	}
 	return &Builder{
 		tx: &Tx{
-			ChainID:              chainID,
+			ChainID:              cid,
 			MaxPriorityFeePerGas: big.NewInt(0),
 			MaxFeePerGas:         big.NewInt(0),
 			NonceKey:             big.NewInt(DefaultNonceKey),

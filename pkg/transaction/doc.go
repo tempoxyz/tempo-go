@@ -12,7 +12,6 @@
 // Create and serialize a transaction:
 //
 //	tx := transaction.New()
-//	tx.ChainID = big.NewInt(transaction.ChainIdMainnet)
 //	tx.Gas = 100000
 //	tx.AddCall(common.HexToAddress("0x..."), big.NewInt(0), []byte{})
 //
