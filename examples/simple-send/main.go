@@ -38,11 +38,11 @@ func getEnvInt64(key string, defaultValue int64) int64 {
 // This example demonstrates how to create, sign, and send a simple Type 0x76 transaction.
 func main() {
 	// Configuration from environment variables
-	rpcURL := getEnv("TEMPO_RPC_URL", "https://rpc.testnet.tempo.xyz")
+	rpcURL := getEnv("TEMPO_RPC_URL", "https://rpc.moderato.tempo.xyz")
 	rpcUsername := getEnv("TEMPO_RPC_USERNAME", "")
 	rpcPassword := getEnv("TEMPO_RPC_PASSWORD", "")
 	privateKey := getEnv("TEMPO_PRIVATE_KEY", "")
-	chainID := getEnvInt64("TEMPO_CHAIN_ID", 42429) // Default to Tempo testnet
+	chainID := getEnvInt64("TEMPO_CHAIN_ID", 42431) // Default to Tempo Moderato testnet
 	recipientAddress := getEnv("TEMPO_RECIPIENT_ADDRESS", "")
 
 	// Validate required environment variables

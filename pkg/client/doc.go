@@ -8,7 +8,7 @@
 // Create a client and send a transaction:
 //
 //	client := client.New(
-//		"https://rpc.testnet.tempo.xyz",
+//		"https://rpc.moderato.tempo.xyz",
 //		client.WithAuth("username", "password"), // optional basic auth
 //	)
 //

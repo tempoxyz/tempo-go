@@ -52,11 +52,11 @@ const (
 // different nonce keys. Tempo's 2D nonce system allows each nonce key to have its
 // own independent sequence, enabling true parallelism without waiting for confirmations.
 func main() {
-	rpcURL := getEnv("TEMPO_RPC_URL", "https://rpc.testnet.tempo.xyz")
+	rpcURL := getEnv("TEMPO_RPC_URL", "https://rpc.moderato.tempo.xyz")
 	rpcUsername := getEnv("TEMPO_RPC_USERNAME", "")
 	rpcPassword := getEnv("TEMPO_RPC_PASSWORD", "")
 	privateKey := getEnv("TEMPO_PRIVATE_KEY", "")
-	chainID := getEnvInt64("TEMPO_CHAIN_ID", 42429)
+	chainID := getEnvInt64("TEMPO_CHAIN_ID", 42431)
 	recipientAddress := getEnv("TEMPO_RECIPIENT_ADDRESS", "")
 
 	if privateKey == "" {

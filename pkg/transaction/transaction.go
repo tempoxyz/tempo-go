@@ -63,11 +63,20 @@ const (
 	// SignatureTypeWebAuthn is the signature type for WebAuthn signatures
 	SignatureTypeWebAuthn = "webauthn"
 
-	// ChainIDTempo is the chain ID for Tempo mainnet.
-	ChainIDTempo = 42424
+	// ChainIdMainnet is the chain ID for Tempo mainnet.
+	ChainIdMainnet = 4217
 
-	// ChainIDTempoTestnet is the chain ID for Tempo testnet.
-	ChainIDTempoTestnet = 42429
+	// ChainIdModerato is the chain ID for the Tempo Moderato testnet.
+	ChainIdModerato = 42431
+
+	// ChainIdDevnet is the chain ID for the Tempo devnet.
+	ChainIdDevnet = 31318
+
+	// RpcUrlMainnet is the RPC URL for Tempo mainnet.
+	RpcUrlMainnet = "https://rpc.tempo.xyz"
+
+	// RpcUrlModerato is the RPC URL for the Tempo Moderato testnet.
+	RpcUrlModerato = "https://rpc.moderato.tempo.xyz"
 
 	// DefaultNonceKey is the standard nonce key for sequential transactions.
 	DefaultNonceKey = 0
@@ -190,7 +199,7 @@ func (tx *Tx) Hash() (common.Hash, error) {
 //
 // Example usage:
 //
-//	template := transaction.NewDefault(42424)
+//	template := transaction.NewDefault(transaction.ChainIdModerato)
 //	template.SetGas(100000)
 //
 //	// Create variations for different recipients

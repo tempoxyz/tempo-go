@@ -62,7 +62,7 @@ var rpcURL string
 func init() {
 	rpcURL = os.Getenv("TEMPO_RPC_URL")
 	if rpcURL == "" {
-		panic("TEMPO_RPC_URL environment variable must be set to run integration tests. Example: export TEMPO_RPC_URL=https://rpc.testnet.tempo.xyz")
+		panic("TEMPO_RPC_URL environment variable must be set to run integration tests. Example: export TEMPO_RPC_URL=https://rpc.moderato.tempo.xyz")
 	}
 }
 
