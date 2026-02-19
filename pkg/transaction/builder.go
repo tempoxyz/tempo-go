@@ -11,7 +11,7 @@ import (
 //
 // Example usage:
 //
-//	tx := transaction.NewBuilder(big.NewInt(transaction.ChainIdModerato)).
+//	tx := transaction.NewBuilder(big.NewInt(transaction.ChainIdMainnet)).
 //	    SetGas(100000).
 //	    AddCall(toAddress, big.NewInt(0), data).
 //	    SetFeeToken(transaction.AlphaUSDAddress).

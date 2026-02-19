@@ -199,7 +199,7 @@ func (tx *Tx) Hash() (common.Hash, error) {
 //
 // Example usage:
 //
-//	template := transaction.NewDefault(transaction.ChainIdModerato)
+//	template := transaction.NewDefault(transaction.ChainIdMainnet)
 //	template.SetGas(100000)
 //
 //	// Create variations for different recipients
