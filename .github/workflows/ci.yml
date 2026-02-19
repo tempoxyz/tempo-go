@@ -10,11 +10,11 @@ on:
 
 jobs:
   test:
-    name: Test
+    name: Test (Go ${{ matrix.go-version }})
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go-version: ['1.24']
+        go-version: ['1.24', '1.25', '1.26']
 
     steps:
     - name: Checkout code
@@ -79,7 +79,7 @@ jobs:
         docker compose logs
         exit 1
 
-    - name: Run integration tests (offline only - localnet lacks tempo_fundAddress)
+    - name: Run integration tests (localnet lacks fee token liquidity for on-chain tests)
       run: go test -v -run "TestIntegration_NodeConnection|TestIntegration_BuilderValidation|TestIntegration_RoundTrip" -timeout=5m ./tests
       env:
         TEMPO_RPC_URL: http://localhost:8545
