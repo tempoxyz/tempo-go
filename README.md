@@ -61,7 +61,7 @@ import (
 
 func main() {
     // Create RPC client
-    c, _ := client.New("https://rpc.moderato.tempo.xyz")
+    c, _ := client.New(transaction.RpcUrlMainnet)
 
     s, _ := signer.NewSigner("0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
 
@@ -69,8 +69,7 @@ func main() {
     amount := new(big.Int).Mul(big.NewInt(10), big.NewInt(1e18)) // 10 AlphaUSD (18 decimals)
     transferData := buildERC20TransferData(recipient, amount)
 
-    tx := transaction.New()
-    tx.ChainID = big.NewInt(42431) // Tempo Moderato testnet
+    tx := transaction.New() // defaults to mainnet
     tx.MaxFeePerGas = big.NewInt(2000000000)
     tx.MaxPriorityFeePerGas = big.NewInt(1000000000)
     tx.Gas = 100000
@@ -107,7 +106,7 @@ func buildERC20TransferData(to common.Address, amount *big.Int) []byte {
 ### Basic Transfer
 
 ```go
-tx := transaction.NewDefault(42431)
+tx := transaction.NewDefault(transaction.ChainIdMainnet)
 tx.MaxFeePerGas = big.NewInt(2000000000)
 tx.MaxPriorityFeePerGas = big.NewInt(1000000000)
 tx.Gas = 100000
@@ -125,7 +124,7 @@ client.SendTransaction(tx)
 ### Sponsored Transaction
 
 ```go
-tx := transaction.NewDefault(42431)
+tx := transaction.NewDefault(transaction.ChainIdMainnet)
 transaction.SignTransaction(tx, userSigner)
 
 transaction.AddFeePayerSignature(tx, feePayerSigner)
@@ -136,7 +135,7 @@ client.SendTransaction(tx)
 ### Batch Multiple Calls
 
 ```go
-tx := transaction.NewDefault(42431) // Tempo Moderato testnet
+tx := transaction.NewDefault(transaction.ChainIdMainnet)
 tx.Gas = 150000
 tx.Calls = []transaction.Call{
     {To: &addr1, Value: big.NewInt(0), Data: transfer1Data},
@@ -151,7 +150,7 @@ client.SendTransaction(tx)
 ### Transaction with Validity Window
 
 ```go
-tx := transaction.NewDefault(42431) // Tempo Moderato testnet
+tx := transaction.NewDefault(transaction.ChainIdMainnet)
 tx.ValidAfter = uint64(time.Now().Unix())
 tx.ValidBefore = uint64(time.Now().Add(1 * time.Hour).Unix())
 
