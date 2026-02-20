@@ -19,7 +19,7 @@
 // Sign data:
 //
 //	data := []byte("hello world")
-//	signature, err := signer.Sign(data)
+//	signature, err := signer.SignData(data)
 //	if err != nil {
 //		log.Fatal(err)
 //	}
