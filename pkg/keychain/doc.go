@@ -4,16 +4,20 @@
 // enabling Root Keys (e.g., passkeys) to provision scoped "secondary" Access Keys
 // with expiry timestamps and per-TIP20 token spending limits.
 //
-// # Keychain Signature Format
+// # Keychain V2 Signature Format
 //
-// Per Tempo spec, Keychain signatures have format:
+// Per Tempo spec, Keychain V2 signatures have format:
 //
-//	0x03 || root_account (20 bytes) || inner_signature (65 bytes)
+//	0x04 || root_account (20 bytes) || inner_signature (65 bytes)
 //
 // Where:
-//   - 0x03 is the Keychain signature type identifier
+//   - 0x04 is the Keychain V2 signature type identifier
 //   - root_account is the account the access key signs on behalf of
 //   - inner_signature is the secp256k1 signature from the access key (r || s || v)
+//
+// The access key signs keccak256(0x04 || sig_hash || user_address) instead of
+// the raw sig_hash. The 0x04 domain separator prevents cross-scheme signature
+// confusion.
 //
 // Total signature length: 86 bytes
 //

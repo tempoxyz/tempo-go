@@ -4,13 +4,14 @@ import (
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/tempoxyz/tempo-go/pkg/signer"
 	"github.com/tempoxyz/tempo-go/pkg/transaction"
 )
 
 const (
-	// KeychainSignatureType is the signature type identifier for Keychain signatures.
-	KeychainSignatureType = 0x03
+	// KeychainSignatureType is the Keychain V2 signature type identifier.
+	KeychainSignatureType = 0x04
 
 	// InnerSignatureLength is the length of the inner secp256k1 signature (r + s + v).
 	InnerSignatureLength = 65
@@ -23,11 +24,11 @@ const (
 	AccountKeychainAddress = "0xAAAAAAAA00000000000000000000000000000000"
 )
 
-// BuildKeychainSignature creates a Keychain signature from an inner secp256k1 signature.
+// BuildKeychainSignature creates a Keychain V2 signature from an inner secp256k1 signature.
 //
-// The Keychain signature format is:
+// The Keychain V2 signature format is:
 //
-//	0x03 || root_account (20 bytes) || inner_signature (65 bytes)
+//	0x04 || root_account (20 bytes) || inner_signature (65 bytes)
 //
 // Parameters:
 //   - innerSig: The secp256k1 signature from the access key
@@ -37,7 +38,7 @@ const (
 func BuildKeychainSignature(innerSig *signer.Signature, rootAccount common.Address) []byte {
 	result := make([]byte, KeychainSignatureLength)
 
-	// Byte 0: Keychain signature type (0x03)
+	// Byte 0: Keychain V2 signature type (0x04)
 	result[0] = KeychainSignatureType
 
 	// Bytes 1-20: Root account address
@@ -60,14 +61,17 @@ func BuildKeychainSignature(innerSig *signer.Signature, rootAccount common.Addre
 
 // SignWithAccessKey signs a Tempo transaction using an access key.
 //
-// This creates a Keychain signature that allows the access key to sign
+// This creates a Keychain V2 signature that allows the access key to sign
 // transactions on behalf of the root account.
+//
+// The access key signs keccak256(0x04 || sig_hash || user_address) instead of
+// the raw sig_hash, providing domain separation.
 //
 // The function:
 //  1. Sets tx.From to the root account address
 //  2. Computes the signing hash
-//  3. Signs with the access key's private key
-//  4. Wraps the signature in Keychain format (0x03 || root || inner_sig)
+//  3. Signs keccak256(0x04 || sig_hash || root_account) with the access key
+//  4. Wraps the signature in Keychain format (0x04 || root || inner_sig)
 //
 // Parameters:
 //   - tx: The transaction to sign (will be modified in place)
@@ -85,13 +89,20 @@ func SignWithAccessKey(tx *transaction.Tx, accessKeySigner *signer.Signer, rootA
 	tx.From = rootAccount
 
 	// Get the signing hash
-	hash, err := transaction.GetSignPayload(tx)
+	sigHash, err := transaction.GetSignPayload(tx)
 	if err != nil {
 		return fmt.Errorf("failed to get sign payload: %w", err)
 	}
 
+	// Compute V2 signing hash: keccak256(0x04 || sig_hash || root_account)
+	v2Input := make([]byte, 0, 1+32+20)
+	v2Input = append(v2Input, KeychainSignatureType)
+	v2Input = append(v2Input, sigHash.Bytes()...)
+	v2Input = append(v2Input, rootAccount.Bytes()...)
+	signingHash := crypto.Keccak256Hash(v2Input)
+
 	// Sign with the access key
-	innerSig, err := accessKeySigner.Sign(hash)
+	innerSig, err := accessKeySigner.Sign(signingHash)
 	if err != nil {
 		return fmt.Errorf("failed to sign with access key: %w", err)
 	}
@@ -158,13 +169,20 @@ func VerifyAccessKeySignature(tx *transaction.Tx) (accessKeyAddr, rootAccount co
 	txCopy.From = rootAccount
 	txCopy.Signature = nil
 
-	hash, err := transaction.GetSignPayload(&txCopy)
+	sigHash, err := transaction.GetSignPayload(&txCopy)
 	if err != nil {
 		return common.Address{}, common.Address{}, fmt.Errorf("failed to get sign payload: %w", err)
 	}
 
+	// Compute V2 signing hash: keccak256(0x04 || sig_hash || root_account)
+	v2Input := make([]byte, 0, 1+32+20)
+	v2Input = append(v2Input, KeychainSignatureType)
+	v2Input = append(v2Input, sigHash.Bytes()...)
+	v2Input = append(v2Input, rootAccount.Bytes()...)
+	signingHash := crypto.Keccak256Hash(v2Input)
+
 	// Recover the access key address from the inner signature
-	accessKeyAddr, err = signer.RecoverAddress(hash, innerSig)
+	accessKeyAddr, err = signer.RecoverAddress(signingHash, innerSig)
 	if err != nil {
 		return common.Address{}, common.Address{}, fmt.Errorf("failed to recover access key address: %w", err)
 	}

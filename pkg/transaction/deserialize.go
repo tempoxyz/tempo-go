@@ -325,7 +325,7 @@ func decodeSignature(sigTuple []interface{}) (*signer.Signature, error) {
 // decodeSignatureEnvelope decodes a signature envelope.
 // Per Tempo Transaction spec, signature types are detected by length and type prefix:
 // - secp256k1: raw 65 bytes (r || s || yParity) - no type prefix
-// - keychain: 0x03 + user_address (20 bytes) + inner_sig (65 bytes) = 86 bytes
+// - keychain: 0x04 + user_address (20 bytes) + inner_sig (65 bytes) = 86 bytes
 // - p256: 0x01 + 129 bytes = 130 bytes
 // - webauthn: 0x02 + variable data (129-2049 bytes total)
 func decodeSignatureEnvelope(envelopeBytes []byte) (*signer.SignatureEnvelope, error) {
@@ -379,7 +379,7 @@ func decodeSignatureEnvelope(envelopeBytes []byte) (*signer.SignatureEnvelope, e
 			Raw:  envelopeBytes,
 		}, nil
 
-	case 0x03: // Keychain: 0x03 + user_address (20 bytes) + inner_sig (65 bytes) = 86 bytes
+	case 0x04: // Keychain: 0x04 + user_address (20 bytes) + inner_sig (65 bytes) = 86 bytes
 		if len(envelopeBytes) != 86 {
 			return nil, fmt.Errorf("invalid Keychain signature length: expected 86, got %d", len(envelopeBytes))
 		}

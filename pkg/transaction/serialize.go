@@ -307,7 +307,7 @@ func encodeSignature(sig *signer.Signature) []interface{} {
 // encodeSignatureEnvelope encodes a signature envelope.
 // Per Tempo Transaction spec, signature types are detected by length and type prefix:
 // - secp256k1: raw 65 bytes (r || s || yParity) - no type prefix
-// - keychain: raw bytes (0x03 || user_address || inner_sig) - type prefix 0x03
+// - keychain: raw bytes (0x04 || user_address || inner_sig) - type prefix 0x04
 // - p256: raw bytes (0x01 || signature data) - type prefix 0x01
 // - webauthn: raw bytes (0x02 || webauthn_data) - type prefix 0x02
 func encodeSignatureEnvelope(envelope *signer.SignatureEnvelope) ([]byte, error) {

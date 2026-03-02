@@ -815,14 +815,14 @@ func TestSerializeForFeePayerSigning_ZeroSender(t *testing.T) {
 }
 
 // TestKeychainSignatureRoundtrip verifies keychain signatures can be serialized and deserialized.
-// Per Tempo Transaction spec, keychain format is: 0x03 + user_address (20 bytes) + inner_sig (65 bytes) = 86 bytes
+// Per Tempo Transaction spec, keychain format is: 0x04 + user_address (20 bytes) + inner_sig (65 bytes) = 86 bytes
 func TestKeychainSignatureRoundtrip(t *testing.T) {
 	// Build a proper 86-byte keychain signature:
-	// - Type prefix: 0x03
+	// - Type prefix: 0x04
 	// - User address: 20 bytes
 	// - Inner signature (r || s || yParity): 65 bytes
 	rawKeychainSig := make([]byte, 86)
-	rawKeychainSig[0] = 0x03 // Type prefix
+	rawKeychainSig[0] = 0x04 // Type prefix
 	// User address (bytes 1-20)
 	copy(rawKeychainSig[1:21], common.HexToAddress("0xabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd").Bytes())
 	// Inner signature R (bytes 21-52)

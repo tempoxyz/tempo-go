@@ -93,7 +93,7 @@ func TestParseKeychainSignature(t *testing.T) {
 }
 
 func TestParseKeychainSignature_InvalidLength(t *testing.T) {
-	_, _, _, err := ParseKeychainSignature([]byte{0x03, 0x01, 0x02})
+	_, _, _, err := ParseKeychainSignature([]byte{0x04, 0x01, 0x02})
 	if err == nil {
 		t.Error("expected error for invalid length")
 	}
@@ -298,7 +298,7 @@ func TestValidateAccessKeySignature(t *testing.T) {
 	}
 
 	// Invalid length
-	if err := ValidateAccessKeySignature([]byte{0x03}); err == nil {
+	if err := ValidateAccessKeySignature([]byte{0x04}); err == nil {
 		t.Error("expected error for invalid length")
 	}
 
