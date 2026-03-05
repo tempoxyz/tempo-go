@@ -29,8 +29,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/btcsuite/btcd/btcutil/bech32"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/tempoxyz/tempo-go/internal/bech32m"
 )
 
 // Human-readable part prefixes.
@@ -98,15 +98,15 @@ func (a TempoAddress) Format() string {
 		copy(payload[1:], a.Address[:])
 	}
 
-	conv, err := bech32.ConvertBits(payload, 8, 5, true)
+	conv, err := bech32m.ConvertBits(payload, 8, 5, true)
 	if err != nil {
 		panic(fmt.Sprintf("address: convert bits failed: %v", err))
 	}
-	encoded, err := bech32.EncodeM(hrp, conv)
-	if err != nil {
-		panic(fmt.Sprintf("address: bech32m encode failed: %v", err))
+	data5 := make([]int, len(conv))
+	for i, b := range conv {
+		data5[i] = int(b)
 	}
-	return encoded
+	return bech32m.Encode(hrp, data5)
 }
 
 // String implements fmt.Stringer. Returns the Bech32m-encoded address string.
@@ -149,14 +149,15 @@ func (a *TempoAddress) UnmarshalJSON(data []byte) error {
 
 // ParseTempoAddress decodes a Bech32m string into a TempoAddress.
 func ParseTempoAddress(s string) (TempoAddress, error) {
-	hrp, data, version, err := bech32.DecodeNoLimitWithVersion(s)
+	hrp, data5, err := bech32m.Decode(s)
 	if err != nil {
 		return TempoAddress{}, fmt.Errorf("%w: %v", ErrInvalidAddress, err)
 	}
-	if version != bech32.VersionM {
-		return TempoAddress{}, fmt.Errorf("%w: %v", ErrInvalidChecksum, "not bech32m")
+	data := make([]byte, len(data5))
+	for i, v := range data5 {
+		data[i] = byte(v)
 	}
-	payload, err := bech32.ConvertBits(data, 5, 8, false)
+	payload, err := bech32m.ConvertBits(data, 5, 8, false)
 	if err != nil {
 		return TempoAddress{}, fmt.Errorf("%w: %v", ErrInvalidAddress, err)
 	}

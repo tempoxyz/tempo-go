@@ -3,7 +3,6 @@ module github.com/tempoxyz/tempo-go
 go 1.24.0
 
 require (
-	github.com/btcsuite/btcd/btcutil v1.1.6
 	github.com/ethereum/go-ethereum v1.16.8
 	github.com/google/go-cmp v0.7.0
 	github.com/joho/godotenv v1.5.1
