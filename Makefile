@@ -7,6 +7,7 @@ all: check
 build_examples:
 	cd examples/feepayer && go build -o ../../bin/feepayer ./cmd
 	go build -o bin/simple-send ./examples/simple-send
+	go build -o bin/address ./examples/address
 
 # Cleans all targets
 clean:
