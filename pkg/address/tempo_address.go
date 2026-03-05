@@ -28,13 +28,10 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"strings"
 
+	"github.com/btcsuite/btcd/btcutil/bech32"
 	"github.com/ethereum/go-ethereum/common"
 )
-
-// Bech32m constant (BIP-350).
-const bech32mConst = 0x2BC830A3
 
 // Human-readable part prefixes.
 const (
@@ -101,9 +98,12 @@ func (a TempoAddress) Format() string {
 		copy(payload[1:], a.Address[:])
 	}
 
-	encoded, err := bech32mEncode(hrp, payload)
+	conv, err := bech32.ConvertBits(payload, 8, 5, true)
 	if err != nil {
-		// This should never happen with valid inputs.
+		panic(fmt.Sprintf("address: convert bits failed: %v", err))
+	}
+	encoded, err := bech32.EncodeM(hrp, conv)
+	if err != nil {
 		panic(fmt.Sprintf("address: bech32m encode failed: %v", err))
 	}
 	return encoded
@@ -149,7 +149,14 @@ func (a *TempoAddress) UnmarshalJSON(data []byte) error {
 
 // ParseTempoAddress decodes a Bech32m string into a TempoAddress.
 func ParseTempoAddress(s string) (TempoAddress, error) {
-	hrp, payload, err := bech32mDecode(s)
+	hrp, data, version, err := bech32.DecodeNoLimitWithVersion(s)
+	if err != nil {
+		return TempoAddress{}, fmt.Errorf("%w: %v", ErrInvalidAddress, err)
+	}
+	if version != bech32.VersionM {
+		return TempoAddress{}, fmt.Errorf("%w: %v", ErrInvalidChecksum, "not bech32m")
+	}
+	payload, err := bech32.ConvertBits(data, 5, 8, false)
 	if err != nil {
 		return TempoAddress{}, fmt.Errorf("%w: %v", ErrInvalidAddress, err)
 	}
@@ -266,163 +273,3 @@ func decodeCompactSize(data []byte) (uint64, int, error) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Bech32m encoding/decoding (BIP-350)
-// ---------------------------------------------------------------------------
-
-const bech32Charset = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
-
-var bech32CharsetRev [128]int8
-
-func init() {
-	for i := range bech32CharsetRev {
-		bech32CharsetRev[i] = -1
-	}
-	for i, c := range bech32Charset {
-		bech32CharsetRev[c] = int8(i)
-	}
-}
-
-func bech32Polymod(values []int) uint32 {
-	gen := [5]uint32{0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3}
-	chk := uint32(1)
-	for _, v := range values {
-		b := chk >> 25
-		chk = (chk&0x1ffffff)<<5 ^ uint32(v)
-		for i := 0; i < 5; i++ {
-			if (b>>uint(i))&1 != 0 {
-				chk ^= gen[i]
-			}
-		}
-	}
-	return chk
-}
-
-func bech32HRPExpand(hrp string) []int {
-	ret := make([]int, 0, len(hrp)*2+1)
-	for _, c := range hrp {
-		ret = append(ret, int(c>>5))
-	}
-	ret = append(ret, 0)
-	for _, c := range hrp {
-		ret = append(ret, int(c&31))
-	}
-	return ret
-}
-
-func bech32VerifyChecksum(hrp string, data []int) bool {
-	values := append(bech32HRPExpand(hrp), data...)
-	return bech32Polymod(values) == bech32mConst
-}
-
-func bech32CreateChecksum(hrp string, data []int) []int {
-	values := append(bech32HRPExpand(hrp), data...)
-	values = append(values, 0, 0, 0, 0, 0, 0)
-	polymod := bech32Polymod(values) ^ bech32mConst
-	ret := make([]int, 6)
-	for i := 0; i < 6; i++ {
-		ret[i] = int((polymod >> uint(5*(5-i))) & 31)
-	}
-	return ret
-}
-
-// convertBits converts data between arbitrary bit groups.
-// If pad is true, remaining bits are padded with zeros to the target group size.
-func convertBits(data []byte, fromBits, toBits uint, pad bool) ([]int, error) {
-	acc := 0
-	bits := uint(0)
-	maxv := (1 << toBits) - 1
-	ret := make([]int, 0, len(data)*int(fromBits)/int(toBits)+1)
-	for _, val := range data {
-		if int(val)>>fromBits != 0 {
-			return nil, fmt.Errorf("invalid data byte: %d", val)
-		}
-		acc = (acc << fromBits) | int(val)
-		bits += fromBits
-		for bits >= toBits {
-			bits -= toBits
-			ret = append(ret, (acc>>bits)&maxv)
-		}
-	}
-	if pad {
-		if bits > 0 {
-			ret = append(ret, (acc<<(toBits-bits))&maxv)
-		}
-	} else if bits >= fromBits {
-		return nil, fmt.Errorf("excess padding")
-	} else if (acc<<(toBits-bits))&maxv != 0 {
-		return nil, fmt.Errorf("non-zero padding")
-	}
-	return ret, nil
-}
-
-// bech32mEncode encodes data as a Bech32m string.
-func bech32mEncode(hrp string, data []byte) (string, error) {
-	values, err := convertBits(data, 8, 5, true)
-	if err != nil {
-		return "", fmt.Errorf("convert bits: %w", err)
-	}
-	checksum := bech32CreateChecksum(hrp, values)
-	combined := append(values, checksum...)
-
-	var sb strings.Builder
-	sb.Grow(len(hrp) + 1 + len(combined))
-	sb.WriteString(hrp)
-	sb.WriteByte('1')
-	for _, v := range combined {
-		sb.WriteByte(bech32Charset[v])
-	}
-	return sb.String(), nil
-}
-
-// bech32mDecode decodes a Bech32m string, returning the HRP and payload bytes.
-func bech32mDecode(s string) (string, []byte, error) {
-	// Bech32 is case-insensitive; normalize to lowercase.
-	lower := strings.ToLower(s)
-	if lower != s && strings.ToUpper(s) != s {
-		return "", nil, fmt.Errorf("mixed case")
-	}
-	s = lower
-
-	pos := strings.LastIndexByte(s, '1')
-	if pos < 1 || pos+7 > len(s) {
-		return "", nil, fmt.Errorf("invalid separator position")
-	}
-
-	hrp := s[:pos]
-	dataPart := s[pos+1:]
-
-	data := make([]int, len(dataPart))
-	for i, c := range dataPart {
-		if c >= 128 || bech32CharsetRev[c] == -1 {
-			return "", nil, fmt.Errorf("invalid character: %c", c)
-		}
-		data[i] = int(bech32CharsetRev[c])
-	}
-
-	if !bech32VerifyChecksum(hrp, data) {
-		return "", nil, ErrInvalidChecksum
-	}
-
-	// Strip the 6-byte checksum.
-	data = data[:len(data)-6]
-
-	decoded, err := convertBits(intSliceToBytes(data), 5, 8, false)
-	if err != nil {
-		return "", nil, fmt.Errorf("convert bits: %w", err)
-	}
-
-	payload := make([]byte, len(decoded))
-	for i, v := range decoded {
-		payload[i] = byte(v)
-	}
-	return hrp, payload, nil
-}
-
-func intSliceToBytes(data []int) []byte {
-	b := make([]byte, len(data))
-	for i, v := range data {
-		b[i] = byte(v)
-	}
-	return b
-}
