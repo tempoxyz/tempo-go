@@ -272,4 +272,3 @@ func decodeCompactSize(data []byte) (uint64, int, error) {
 		return 0, 0, fmt.Errorf("invalid compact size prefix: %d", data[0])
 	}
 }
-
