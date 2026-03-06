@@ -36,7 +36,6 @@ var (
 // Function selectors
 var (
 	incrementSelector    = mustDecodeHex("d09de08a")
-	getPoolSelector      = mustDecodeHex("e79667e3")
 	setUserTokenSelector = mustDecodeHex("e7897444")
 	authorizeKeySelector = mustDecodeSelector(keychain.AuthorizeKeySelector)
 	getKeySelector       = mustDecodeSelector(keychain.GetKeySelector)
@@ -393,56 +392,9 @@ func TestIntegration_SimpleTransaction(t *testing.T) {
 	tc.sendTxExpectSuccess(tx, "Transaction failed")
 }
 
-// TestIntegration_FeeTokenLiquidity verifies that FeeAMM liquidity is seeded at genesis
+// TestIntegration_FeeTokenLiquidity verifies that FeeAMM liquidity exists for all fee tokens
+// by sending a transaction with each one as the fee token.
 func TestIntegration_FeeTokenLiquidity(t *testing.T) {
-	tc := newTestContext(t)
-
-	feeTokens := []struct {
-		name  string
-		token common.Address
-	}{
-		{"AlphaUSD", alphaUSD},
-		{"BetaUSD", betaUSD},
-		{"ThetaUSD", thetaUSD},
-	}
-
-	for _, ft := range feeTokens {
-		t.Run(ft.name, func(t *testing.T) {
-			calldata := encodeCalldata(
-				getPoolSelector,
-				addressToBytes32(ft.token),
-				addressToBytes32(nativeFeeToken),
-			)
-
-			resp, err := tc.client.SendRequest(tc.ctx, "eth_call", map[string]interface{}{
-				"to":   feeController.Hex(),
-				"data": "0x" + hex.EncodeToString(calldata),
-			}, "latest")
-			require.NoError(t, err)
-			if resp.Error != nil {
-				t.Skipf("getPool not supported on this network: %v", resp.Error)
-			}
-
-			result, ok := resp.Result.(string)
-			require.True(t, ok, "expected string result from getPool")
-
-			resultBytes, err := hex.DecodeString(strings.TrimPrefix(result, "0x"))
-			require.NoError(t, err)
-			require.True(t, len(resultBytes) >= 64, "getPool result too short, expected >= 64 bytes, got %d", len(resultBytes))
-
-			reserveUserToken := new(big.Int).SetBytes(resultBytes[0:32])
-			reserveValidatorToken := new(big.Int).SetBytes(resultBytes[32:64])
-
-			assert.True(t, reserveUserToken.Sign() > 0, "expected non-zero reserve_user_token for %s", ft.name)
-			assert.True(t, reserveValidatorToken.Sign() > 0, "expected non-zero reserve_validator_token for %s", ft.name)
-
-			t.Logf("Pool %s: reserve_user_token=%s, reserve_validator_token=%s", ft.name, reserveUserToken, reserveValidatorToken)
-		})
-	}
-}
-
-// TestIntegration_SendWithFeeToken tests sending transactions with custom fee tokens
-func TestIntegration_SendWithFeeToken(t *testing.T) {
 	tc := newTestContext(t)
 	sender := tc.createAndFundSigner()
 
@@ -450,6 +402,7 @@ func TestIntegration_SendWithFeeToken(t *testing.T) {
 		name  string
 		token common.Address
 	}{
+		{"AlphaUSD", alphaUSD},
 		{"BetaUSD", betaUSD},
 		{"ThetaUSD", thetaUSD},
 	}
