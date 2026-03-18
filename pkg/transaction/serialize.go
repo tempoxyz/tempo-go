@@ -64,9 +64,9 @@ func Serialize(tx *Tx, opts *SerializeOptions) (string, error) {
 }
 
 // buildRLPList constructs the RLP list for a transaction.
-// This contains all 13-14 fields of a TempoTransaction.
+// This contains 13-15 fields of a TempoTransaction (15 when keyAuthorization is present).
 func buildRLPList(tx *Tx, opts *SerializeOptions) ([]interface{}, error) {
-	rlpList := make([]interface{}, 0, 14)
+	rlpList := make([]interface{}, 0, 15)
 
 	// Fields 0-3: Core gas and fee fields
 	rlpList = append(rlpList,
@@ -108,7 +108,14 @@ func buildRLPList(tx *Tx, opts *SerializeOptions) ([]interface{}, error) {
 	// Field 12: authorizationList (empty for now)
 	rlpList = append(rlpList, []interface{}{})
 
-	// Field 13: signatureEnvelope (if present)
+	// Field 13 (optional): keyAuthorization — present when access keys are used.
+	// When keyAuthorization is set, it occupies field 13 and the signature shifts to field 14.
+	// When absent, the signature remains at field 13 (standard 14-field format).
+	if tx.KeyAuthorization != nil {
+		rlpList = append(rlpList, tx.KeyAuthorization)
+	}
+
+	// Field 13 or 14: signatureEnvelope (if present)
 	if tx.Signature != nil {
 		sigEnvelopeBytes, err := encodeSignatureEnvelope(tx.Signature)
 		if err != nil {
