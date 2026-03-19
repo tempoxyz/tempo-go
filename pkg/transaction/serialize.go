@@ -108,14 +108,12 @@ func buildRLPList(tx *Tx, opts *SerializeOptions) ([]interface{}, error) {
 	// Field 12: authorizationList (empty for now)
 	rlpList = append(rlpList, []interface{}{})
 
-	// Field 13 (optional): keyAuthorization — present when access keys are used.
-	// When keyAuthorization is set, it occupies field 13 and the signature shifts to field 14.
-	// When absent, the signature remains at field 13 (standard 14-field format).
+	// Field 13 (optional): keyAuthorization
 	if tx.KeyAuthorization != nil {
 		rlpList = append(rlpList, tx.KeyAuthorization)
 	}
 
-	// Field 13 or 14: signatureEnvelope (if present)
+	// signatureEnvelope (field 13 without keyAuthorization, field 14 with)
 	if tx.Signature != nil {
 		sigEnvelopeBytes, err := encodeSignatureEnvelope(tx.Signature)
 		if err != nil {

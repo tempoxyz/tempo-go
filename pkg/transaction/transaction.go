@@ -23,10 +23,8 @@ type Tx struct {
 	ValidAfter           uint64         `json:"validAfter"`  // Optional activation timestamp
 	FeeToken             common.Address `json:"feeToken"`    // Stablecoin address for fees (e.g., AlphaUSD)
 
-	// KeyAuthorization holds the raw RLP-decoded keyAuthorization tuple for access key
-	// transactions. This is an opaque pass-through: we preserve the decoded RLP structure
-	// so it can be re-encoded during serialization and forwarded to the Tempo RPC, which
-	// handles access key validation on-chain. When nil, no keyAuthorization is present.
+	// KeyAuthorization holds the decoded RLP keyAuthorization tuple for access key
+	// transactions. Preserved as-is for re-serialization. Nil when not present.
 	KeyAuthorization interface{} `json:"keyAuthorization,omitempty"`
 
 	// Signatures
