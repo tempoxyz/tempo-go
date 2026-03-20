@@ -121,8 +121,10 @@ func TestTransaction_Validate(t *testing.T) {
 		{
 			name: "multiple calls valid",
 			tx: &Tx{
-				ChainID: big.NewInt(42424),
-				Gas:     200000,
+				ChainID:              big.NewInt(42424),
+				MaxPriorityFeePerGas: big.NewInt(1000000000),
+				MaxFeePerGas:         big.NewInt(2000000000),
+				Gas:                  200000,
 				Calls: []Call{
 					{
 						To:    addrPtr(common.HexToAddress("0x1111111111111111111111111111111111111111")),

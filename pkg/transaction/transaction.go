@@ -158,6 +158,14 @@ func (tx *Tx) Validate() error {
 		return fmt.Errorf("%w: chain ID must be set", ErrInvalidTransaction)
 	}
 
+	if tx.MaxFeePerGas == nil {
+		return fmt.Errorf("%w: max fee per gas must be set", ErrInvalidTransaction)
+	}
+
+	if tx.MaxPriorityFeePerGas == nil {
+		return fmt.Errorf("%w: max priority fee per gas must be set", ErrInvalidTransaction)
+	}
+
 	if tx.Gas == 0 {
 		return fmt.Errorf("%w: gas must be greater than 0", ErrInvalidTransaction)
 	}

@@ -50,6 +50,7 @@ go get github.com/tempoxyz/tempo-go@v0.1.0
 package main
 
 import (
+    "context"
     "fmt"
     "math/big"
 
@@ -61,7 +62,7 @@ import (
 
 func main() {
     // Create RPC client
-    c, _ := client.New(transaction.RpcUrlMainnet)
+    c := client.New(transaction.RpcUrlModerato)
 
     s, _ := signer.NewSigner("0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
 
@@ -69,7 +70,7 @@ func main() {
     amount := new(big.Int).Mul(big.NewInt(10), big.NewInt(1e18)) // 10 AlphaUSD (18 decimals)
     transferData := buildERC20TransferData(recipient, amount)
 
-    tx := transaction.New() // defaults to mainnet
+    tx := transaction.NewDefault(transaction.ChainIdModerato)
     tx.MaxFeePerGas = big.NewInt(2000000000)
     tx.MaxPriorityFeePerGas = big.NewInt(1000000000)
     tx.Gas = 100000
@@ -80,8 +81,10 @@ func main() {
     }}
 
     transaction.SignTransaction(tx, s)
-    hash, _ := c.SendTransaction(tx)
-    fmt.Printf("Transaction hash: %s\n", hash.Hex())
+
+    serialized, _ := transaction.Serialize(tx, nil)
+    hash, _ := c.SendRawTransaction(context.Background(), serialized)
+    fmt.Printf("Transaction hash: %s\n", hash)
 }
 
 // buildERC20TransferData creates calldata for ERC20 transfer(address,uint256)
@@ -118,7 +121,8 @@ tx.Calls = []transaction.Call{{
 
 transaction.SignTransaction(tx, signer)
 
-client.SendTransaction(tx)
+serialized, _ := transaction.Serialize(tx, nil)
+client.SendRawTransaction(context.Background(), serialized)
 ```
 
 ### Sponsored Transaction
@@ -129,7 +133,8 @@ transaction.SignTransaction(tx, userSigner)
 
 transaction.AddFeePayerSignature(tx, feePayerSigner)
 
-client.SendTransaction(tx)
+serialized, _ := transaction.Serialize(tx, nil)
+client.SendRawTransaction(context.Background(), serialized)
 ```
 
 ### Batch Multiple Calls
@@ -144,7 +149,8 @@ tx.Calls = []transaction.Call{
 }
 
 transaction.SignTransaction(tx, signer)
-client.SendTransaction(tx)
+serialized, _ := transaction.Serialize(tx, nil)
+client.SendRawTransaction(context.Background(), serialized)
 ```
 
 ### Transaction with Validity Window
@@ -155,7 +161,8 @@ tx.ValidAfter = uint64(time.Now().Unix())
 tx.ValidBefore = uint64(time.Now().Add(1 * time.Hour).Unix())
 
 transaction.SignTransaction(tx, signer)
-client.SendTransaction(tx)
+serialized, _ := transaction.Serialize(tx, nil)
+client.SendRawTransaction(context.Background(), serialized)
 ```
 
 ## Packages
@@ -165,6 +172,7 @@ client.SendTransaction(tx)
 | `transaction` | TempoTransaction encoding, signing, and validation | [GoDoc](https://pkg.go.dev/github.com/tempoxyz/tempo-go/pkg/transaction) |
 | `client`      | RPC client for interacting with Tempo nodes        | [GoDoc](https://pkg.go.dev/github.com/tempoxyz/tempo-go/pkg/client)      |
 | `signer`      | Key management and signature generation            | [GoDoc](https://pkg.go.dev/github.com/tempoxyz/tempo-go/pkg/signer)      |
+| `keychain`    | Keychain-based transaction signing                 | [GoDoc](https://pkg.go.dev/github.com/tempoxyz/tempo-go/pkg/keychain)    |
 
 ## Testing
 
@@ -265,5 +273,5 @@ Licensed under either of [Apache License](./LICENSE-APACHE), Version
 2.0 or [MIT License](./LICENSE-MIT) at your option.
 
 Unless you explicitly state otherwise, any contribution intentionally submitted
-for inclusion in these crates by you, as defined in the Apache-2.0 license,
+for inclusion in these packages by you, as defined in the Apache-2.0 license,
 shall be dual licensed as above, without any additional terms or conditions.
