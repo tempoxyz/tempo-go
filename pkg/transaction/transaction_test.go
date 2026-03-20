@@ -391,6 +391,30 @@ func TestTransaction_Clone(t *testing.T) {
 		assert.Equal(t, storageKey1, cloned.AccessList[0].StorageKeys[0], "Cloned storage keys should not change")
 	})
 
+	t.Run("clone key authorization deeply", func(t *testing.T) {
+		original := New()
+		original.KeyAuthorization = []interface{}{
+			common.HexToAddress("0xabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd").Bytes(),
+			[]byte{0x01, 0x02, 0x03},
+		}
+
+		cloned := original.Clone()
+
+		assert.NotNil(t, cloned.KeyAuthorization, "Cloned should have KeyAuthorization")
+		assert.Len(t, cloned.KeyAuthorization, 2)
+
+		// Modify original — cloned should not be affected
+		original.KeyAuthorization[0] = []byte{0xff}
+		assert.NotEqual(t, original.KeyAuthorization[0], cloned.KeyAuthorization[0],
+			"Cloned KeyAuthorization should not change when original is modified")
+	})
+
+	t.Run("clone nil key authorization", func(t *testing.T) {
+		original := New()
+		cloned := original.Clone()
+		assert.Nil(t, cloned.KeyAuthorization, "Cloned should have nil KeyAuthorization")
+	})
+
 	t.Run("clone does not copy signatures", func(t *testing.T) {
 		original := New()
 		original.Signature = &signer.SignatureEnvelope{

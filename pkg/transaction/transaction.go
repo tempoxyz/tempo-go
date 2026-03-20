@@ -25,7 +25,7 @@ type Tx struct {
 
 	// KeyAuthorization holds the decoded RLP keyAuthorization tuple for access key
 	// transactions. Preserved as-is for re-serialization. Nil when not present.
-	KeyAuthorization interface{} `json:"keyAuthorization,omitempty"`
+	KeyAuthorization []interface{} `json:"keyAuthorization,omitempty"`
 
 	// Signatures
 	Signature         *signer.SignatureEnvelope `json:"signature"`         // Sender signature
@@ -246,6 +246,12 @@ func (tx *Tx) Clone() *Tx {
 			Address:     entry.Address,
 			StorageKeys: append([]common.Hash{}, entry.StorageKeys...),
 		}
+	}
+
+	// Deep copy keyAuthorization
+	if tx.KeyAuthorization != nil {
+		clone.KeyAuthorization = make([]interface{}, len(tx.KeyAuthorization))
+		copy(clone.KeyAuthorization, tx.KeyAuthorization)
 	}
 
 	// Note: We intentionally don't copy signatures as they're tied to specific transaction state

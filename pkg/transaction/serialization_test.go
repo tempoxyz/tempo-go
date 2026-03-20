@@ -794,6 +794,244 @@ func TestSerializeForSigning_SponsoredTransaction(t *testing.T) {
 	})
 }
 
+// buildKeyAuthRLPList constructs a raw RLP field list for testing keyAuthorization deserialization.
+func buildKeyAuthRLPList(keyAuth []interface{}, sigEnvelope []byte) []interface{} {
+	list := []interface{}{
+		big.NewInt(42424).Bytes(),
+		big.NewInt(1000000).Bytes(),
+		big.NewInt(2000000).Bytes(),
+		big.NewInt(21000).Bytes(),
+		[]interface{}{
+			[]interface{}{
+				common.HexToAddress("0x1234567890123456789012345678901234567890").Bytes(),
+				big.NewInt(1000000).Bytes(),
+				[]byte{0xde, 0xad},
+			},
+		},
+		[]interface{}{},
+		[]byte{},
+		big.NewInt(1).Bytes(),
+		[]byte{},
+		[]byte{},
+		common.HexToAddress("0x20c0000000000000000000000000000000000001").Bytes(),
+		[]byte{0x00},
+		[]interface{}{},
+	}
+	if keyAuth != nil {
+		list = append(list, keyAuth)
+	}
+	if sigEnvelope != nil {
+		list = append(list, sigEnvelope)
+	}
+	return list
+}
+
+func encodeToHex(t *testing.T, rlpList []interface{}) string {
+	t.Helper()
+	rlpBytes, err := rlp.EncodeToBytes(rlpList)
+	assert.NoError(t, err)
+	return "0x76" + hex.EncodeToString(rlpBytes)
+}
+
+func makeSecp256k1Envelope() ([]byte, *big.Int, *big.Int) {
+	r := hexToBigInt("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef")
+	s := hexToBigInt("0xfedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321")
+	envelope := make([]byte, 65)
+	copy(envelope[0:32], r.Bytes())
+	copy(envelope[32:64], s.Bytes())
+	envelope[64] = 0x00
+	return envelope, r, s
+}
+
+func TestDeserialize_KeyAuthorization_15Fields(t *testing.T) {
+	sigEnvelope, sigR, sigS := makeSecp256k1Envelope()
+	keyAuthTuple := []interface{}{
+		common.HexToAddress("0xabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd").Bytes(),
+		[]byte{0x01, 0x02, 0x03},
+		big.NewInt(9999999).Bytes(),
+	}
+
+	serialized := encodeToHex(t, buildKeyAuthRLPList(keyAuthTuple, sigEnvelope))
+
+	tx, err := Deserialize(serialized)
+	assert.NoError(t, err)
+
+	assert.Equal(t, 0, tx.ChainID.Cmp(big.NewInt(42424)), "ChainID mismatch")
+	assert.Equal(t, uint64(21000), tx.Gas, "Gas mismatch")
+	assert.Equal(t, uint64(1), tx.Nonce, "Nonce mismatch")
+	assert.True(t, tx.AwaitingFeePayer, "AwaitingFeePayer should be true (0x00 marker)")
+
+	assert.NotNil(t, tx.KeyAuthorization, "KeyAuthorization should be parsed from field 13")
+	assert.Len(t, tx.KeyAuthorization, 3, "KeyAuthorization tuple should have 3 elements")
+
+	assert.NotNil(t, tx.Signature, "Signature should be parsed from field 14")
+	assert.Equal(t, "secp256k1", tx.Signature.Type)
+	assert.Equal(t, 0, tx.Signature.Signature.R.Cmp(sigR), "Signature R mismatch")
+	assert.Equal(t, 0, tx.Signature.Signature.S.Cmp(sigS), "Signature S mismatch")
+}
+
+func TestDeserialize_KeyAuthorization_14Fields(t *testing.T) {
+	keyAuthTuple := []interface{}{
+		common.HexToAddress("0xabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd").Bytes(),
+		[]byte{0x01, 0x02, 0x03},
+	}
+
+	serialized := encodeToHex(t, buildKeyAuthRLPList(keyAuthTuple, nil))
+
+	tx, err := Deserialize(serialized)
+	assert.NoError(t, err)
+
+	assert.NotNil(t, tx.KeyAuthorization, "KeyAuthorization should be present")
+	assert.Nil(t, tx.Signature, "Signature should be nil when only 14 fields with keyAuth")
+}
+
+func TestDeserialize_FieldCount_Rejected(t *testing.T) {
+	tests := []struct {
+		name       string
+		fieldCount int
+		wantErr    string
+	}{
+		{"12_fields_rejected", 12, "expected 13, 14, or 15 fields, got 12"},
+		{"16_fields_rejected", 16, "expected 13, 14, or 15 fields, got 16"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rlpList := make([]interface{}, tt.fieldCount)
+			for i := range rlpList {
+				rlpList[i] = []byte{}
+			}
+			if tt.fieldCount > 4 {
+				rlpList[4] = []interface{}{}
+			}
+			if tt.fieldCount > 5 {
+				rlpList[5] = []interface{}{}
+			}
+			if tt.fieldCount > 12 {
+				rlpList[12] = []interface{}{}
+			}
+
+			serialized := encodeToHex(t, rlpList)
+			_, err := Deserialize(serialized)
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}
+
+func TestDeserialize_KeyAuthorization_Roundtrip(t *testing.T) {
+	sigEnvelope, _, _ := makeSecp256k1Envelope()
+	keyAuthTuple := []interface{}{
+		common.HexToAddress("0xabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd").Bytes(),
+		[]byte{0x01, 0x02, 0x03},
+		big.NewInt(9999999).Bytes(),
+	}
+
+	original := encodeToHex(t, buildKeyAuthRLPList(keyAuthTuple, sigEnvelope))
+
+	tx1, err := Deserialize(original)
+	assert.NoError(t, err)
+
+	serialized1, err := Serialize(tx1, nil)
+	assert.NoError(t, err)
+
+	tx2, err := Deserialize(serialized1)
+	assert.NoError(t, err)
+
+	assert.Equal(t, 0, tx1.ChainID.Cmp(tx2.ChainID), "ChainID mismatch after roundtrip")
+	assert.Equal(t, tx1.Gas, tx2.Gas, "Gas mismatch after roundtrip")
+	assert.NotNil(t, tx2.KeyAuthorization, "KeyAuthorization lost after roundtrip")
+	assert.Equal(t, len(tx1.KeyAuthorization), len(tx2.KeyAuthorization), "KeyAuthorization tuple length mismatch")
+	assert.NotNil(t, tx2.Signature, "Signature lost after roundtrip")
+	assert.Equal(t, 0, tx1.Signature.Signature.R.Cmp(tx2.Signature.Signature.R), "Signature R mismatch")
+
+	// Double roundtrip produces identical bytes
+	serialized2, err := Serialize(tx2, nil)
+	assert.NoError(t, err)
+	assert.Equal(t, serialized1, serialized2, "Double roundtrip should produce identical bytes")
+}
+
+func TestSerialize_KeyAuthorization_FieldCount(t *testing.T) {
+	baseTx := func() *Tx {
+		return &Tx{
+			ChainID:              big.NewInt(42424),
+			MaxPriorityFeePerGas: big.NewInt(1000000),
+			MaxFeePerGas:         big.NewInt(2000000),
+			Gas:                  21000,
+			Calls: []Call{
+				{To: addrPtr(common.HexToAddress("0x1234567890123456789012345678901234567890")), Value: big.NewInt(0), Data: []byte{}},
+			},
+			AccessList: AccessList{},
+			NonceKey:   big.NewInt(0),
+			Nonce:      1,
+			FeeToken:   common.HexToAddress("0x20c0000000000000000000000000000000000001"),
+			Signature:  signer.NewSignatureEnvelope(big.NewInt(12345), big.NewInt(67890), 0),
+		}
+	}
+
+	t.Run("without_key_authorization_produces_14_fields", func(t *testing.T) {
+		tx := baseTx()
+		serialized, err := Serialize(tx, nil)
+		assert.NoError(t, err)
+		deserialized, err := Deserialize(serialized)
+		assert.NoError(t, err)
+		assert.Nil(t, deserialized.KeyAuthorization)
+		assert.NotNil(t, deserialized.Signature)
+	})
+
+	t.Run("with_key_authorization_produces_15_fields", func(t *testing.T) {
+		tx := baseTx()
+		tx.KeyAuthorization = []interface{}{
+			common.HexToAddress("0xabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd").Bytes(),
+			[]byte{0x01, 0x02, 0x03},
+		}
+		serialized, err := Serialize(tx, nil)
+		assert.NoError(t, err)
+		deserialized, err := Deserialize(serialized)
+		assert.NoError(t, err)
+		assert.NotNil(t, deserialized.KeyAuthorization)
+		assert.NotNil(t, deserialized.Signature)
+	})
+}
+
+func TestSerialize_KeyAuthorization_FeePayerFlow(t *testing.T) {
+	senderSgn, err := signer.NewSigner("0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
+	assert.NoError(t, err)
+	feePayerSgn, err := signer.NewSigner("0xdd83cd66cd98801a07e0b7c1a5b02364b369e696da7c0ab444acffea5cca86fc")
+	assert.NoError(t, err)
+
+	tx := NewBuilder(big.NewInt(42424)).
+		SetGas(21000).
+		AddCall(common.HexToAddress("0x1234567890123456789012345678901234567890"), big.NewInt(0), []byte{}).
+		Build()
+	tx.KeyAuthorization = []interface{}{
+		common.HexToAddress("0xabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd").Bytes(),
+		[]byte{0x01, 0x02, 0x03},
+	}
+
+	err = SignTransaction(tx, senderSgn)
+	assert.NoError(t, err)
+
+	serialized, err := Serialize(tx, nil)
+	assert.NoError(t, err)
+
+	txServer, err := Deserialize(serialized)
+	assert.NoError(t, err)
+	assert.NotNil(t, txServer.KeyAuthorization)
+
+	err = AddFeePayerSignature(txServer, feePayerSgn)
+	assert.NoError(t, err)
+
+	reSerialized, err := Serialize(txServer, nil)
+	assert.NoError(t, err)
+
+	txFinal, err := Deserialize(reSerialized)
+	assert.NoError(t, err)
+	assert.NotNil(t, txFinal.KeyAuthorization, "KeyAuthorization should survive full fee payer flow")
+	assert.NotNil(t, txFinal.Signature, "Sender signature should be present")
+	assert.NotNil(t, txFinal.FeePayerSignature, "Fee payer signature should be present")
+}
+
 // TestSerializeForFeePayerSigning_ZeroSender verifies that zero sender address is rejected.
 func TestSerializeForFeePayerSigning_ZeroSender(t *testing.T) {
 	tx := &Tx{

@@ -175,8 +175,8 @@ func Deserialize(serialized string) (*Tx, error) {
 	// Field 13 is disambiguated by RLP type: list = keyAuthorization, bytes = signatureEnvelope.
 	// When keyAuthorization is present, the signature shifts to field 14.
 	if len(raw) > 13 {
-		if _, isList := raw[13].([]interface{}); isList {
-			tx.KeyAuthorization = raw[13]
+		if keyAuth, isList := raw[13].([]interface{}); isList {
+			tx.KeyAuthorization = keyAuth
 			if len(raw) > 14 {
 				if sigEnvelopeRaw, ok := raw[14].([]byte); ok && len(sigEnvelopeRaw) > 0 {
 					sigEnvelope, err := decodeSignatureEnvelope(sigEnvelopeRaw)
