@@ -885,6 +885,42 @@ func TestDeserialize_KeyAuthorization_14Fields(t *testing.T) {
 	assert.Nil(t, tx.Signature, "Signature should be nil when only 14 fields with keyAuth")
 }
 
+func TestDeserialize_KeyAuthorization_InvalidFieldShapesRejected(t *testing.T) {
+	t.Run("15_fields_signature_in_field_13_is_rejected", func(t *testing.T) {
+		sigEnvelope, _, _ := makeSecp256k1Envelope()
+		rlpList := append(buildKeyAuthRLPList(nil, sigEnvelope), []byte{0xab, 0xcd})
+
+		serialized := encodeToHex(t, rlpList)
+		_, err := Deserialize(serialized)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid field 13 type for 15-field transaction")
+	})
+
+	t.Run("15_fields_non_bytes_field_14_is_rejected", func(t *testing.T) {
+		keyAuthTuple := []interface{}{
+			common.HexToAddress("0xabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd").Bytes(),
+			[]byte{0x01, 0x02, 0x03},
+		}
+		rlpList := buildKeyAuthRLPList(keyAuthTuple, nil)
+		rlpList = append(rlpList, []interface{}{})
+
+		serialized := encodeToHex(t, rlpList)
+		_, err := Deserialize(serialized)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid field 14 type: expected signatureEnvelope bytes")
+	})
+
+	t.Run("14_fields_invalid_signature_envelope_is_rejected", func(t *testing.T) {
+		rlpList := buildKeyAuthRLPList(nil, nil)
+		rlpList = append(rlpList, big.NewInt(1).Bytes())
+
+		serialized := encodeToHex(t, rlpList)
+		_, err := Deserialize(serialized)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to decode signature envelope")
+	})
+}
+
 func TestDeserialize_FieldCount_Rejected(t *testing.T) {
 	tests := []struct {
 		name       string

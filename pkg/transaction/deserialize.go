@@ -172,30 +172,57 @@ func Deserialize(serialized string) (*Tx, error) {
 	// Field 12: authorizationList (reserved for EIP-7702)
 
 	// Fields 13-14: keyAuthorization and/or signatureEnvelope.
-	// Field 13 is disambiguated by RLP type: list = keyAuthorization, bytes = signatureEnvelope.
-	// When keyAuthorization is present, the signature shifts to field 14.
-	if len(raw) > 13 {
+	// Field shape must be validated strictly to reject malformed trailing fields.
+	switch len(raw) {
+	case 13:
+		// No optional fields.
+	case 14:
 		if keyAuth, isList := raw[13].([]interface{}); isList {
 			tx.KeyAuthorization = keyAuth
-			if len(raw) > 14 {
-				if sigEnvelopeRaw, ok := raw[14].([]byte); ok && len(sigEnvelopeRaw) > 0 {
-					sigEnvelope, err := decodeSignatureEnvelope(sigEnvelopeRaw)
-					if err != nil {
-						return nil, fmt.Errorf("failed to decode signature envelope: %w", err)
-					}
-					tx.Signature = sigEnvelope
-				}
-			}
-		} else if sigEnvelopeRaw, ok := raw[13].([]byte); ok && len(sigEnvelopeRaw) > 0 {
-			sigEnvelope, err := decodeSignatureEnvelope(sigEnvelopeRaw)
-			if err != nil {
-				return nil, fmt.Errorf("failed to decode signature envelope: %w", err)
-			}
-			tx.Signature = sigEnvelope
+			break
 		}
+
+		sigEnvelope, err := parseSignatureEnvelopeField(raw[13], 13, true)
+		if err != nil {
+			return nil, err
+		}
+		tx.Signature = sigEnvelope
+	case 15:
+		keyAuth, isList := raw[13].([]interface{})
+		if !isList {
+			return nil, fmt.Errorf("invalid field 13 type for 15-field transaction: expected keyAuthorization list")
+		}
+		tx.KeyAuthorization = keyAuth
+
+		sigEnvelope, err := parseSignatureEnvelopeField(raw[14], 14, true)
+		if err != nil {
+			return nil, err
+		}
+		tx.Signature = sigEnvelope
 	}
 
 	return tx, nil
+}
+
+// parseSignatureEnvelopeField parses a signature envelope from a raw RLP field.
+func parseSignatureEnvelopeField(field interface{}, index int, requireNonEmpty bool) (*signer.SignatureEnvelope, error) {
+	sigEnvelopeRaw, ok := field.([]byte)
+	if !ok {
+		return nil, fmt.Errorf("invalid field %d type: expected signatureEnvelope bytes", index)
+	}
+	if len(sigEnvelopeRaw) == 0 {
+		if requireNonEmpty {
+			return nil, fmt.Errorf("invalid field %d: expected non-empty signatureEnvelope bytes", index)
+		}
+		return nil, nil
+	}
+
+	sigEnvelope, err := decodeSignatureEnvelope(sigEnvelopeRaw)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode signature envelope: %w", err)
+	}
+
+	return sigEnvelope, nil
 }
 
 // decodeCalls decodes the calls array from RLP.

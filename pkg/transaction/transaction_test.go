@@ -396,17 +396,24 @@ func TestTransaction_Clone(t *testing.T) {
 		original.KeyAuthorization = []interface{}{
 			common.HexToAddress("0xabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd").Bytes(),
 			[]byte{0x01, 0x02, 0x03},
+			[]interface{}{[]byte{0x04, 0x05}},
 		}
 
 		cloned := original.Clone()
 
 		assert.NotNil(t, cloned.KeyAuthorization, "Cloned should have KeyAuthorization")
-		assert.Len(t, cloned.KeyAuthorization, 2)
+		assert.Len(t, cloned.KeyAuthorization, 3)
 
-		// Modify original — cloned should not be affected
-		original.KeyAuthorization[0] = []byte{0xff}
-		assert.NotEqual(t, original.KeyAuthorization[0], cloned.KeyAuthorization[0],
-			"Cloned KeyAuthorization should not change when original is modified")
+		// Mutate nested byte slices in original — cloned should not be affected.
+		original.KeyAuthorization[1].([]byte)[0] = 0xff
+		nested := original.KeyAuthorization[2].([]interface{})
+		nested[0].([]byte)[0] = 0xee
+
+		assert.Equal(t, []byte{0x01, 0x02, 0x03}, cloned.KeyAuthorization[1].([]byte),
+			"Cloned KeyAuthorization bytes should not change when original nested bytes mutate")
+		clonedNested := cloned.KeyAuthorization[2].([]interface{})
+		assert.Equal(t, []byte{0x04, 0x05}, clonedNested[0].([]byte),
+			"Cloned nested KeyAuthorization bytes should not change when original nested bytes mutate")
 	})
 
 	t.Run("clone nil key authorization", func(t *testing.T) {

@@ -250,12 +250,34 @@ func (tx *Tx) Clone() *Tx {
 
 	// Deep copy keyAuthorization
 	if tx.KeyAuthorization != nil {
-		clone.KeyAuthorization = make([]interface{}, len(tx.KeyAuthorization))
-		copy(clone.KeyAuthorization, tx.KeyAuthorization)
+		clone.KeyAuthorization = cloneRLPList(tx.KeyAuthorization)
 	}
 
 	// Note: We intentionally don't copy signatures as they're tied to specific transaction state
 	// Signature and FeePayerSignature remain nil in the clone
 
 	return clone
+}
+
+// cloneRLPList recursively deep-copies RLP-like structures ([]interface{} and []byte).
+func cloneRLPList(list []interface{}) []interface{} {
+	clone := make([]interface{}, len(list))
+	for i, v := range list {
+		clone[i] = cloneRLPValue(v)
+	}
+	return clone
+}
+
+// cloneRLPValue recursively deep-copies nested RLP values.
+func cloneRLPValue(value interface{}) interface{} {
+	switch v := value.(type) {
+	case []byte:
+		cloned := make([]byte, len(v))
+		copy(cloned, v)
+		return cloned
+	case []interface{}:
+		return cloneRLPList(v)
+	default:
+		return v
+	}
 }
