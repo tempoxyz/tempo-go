@@ -71,8 +71,8 @@ func init() {
 	}
 }
 
-func isT3() bool {
-	return hardfork >= "T3"
+func isT2() bool {
+	return hardfork == "T2"
 }
 
 // testContext encapsulates common test dependencies and helpers
@@ -928,7 +928,7 @@ func buildAuthorizeKeyCalldata(keyAddr common.Address, expiry int64, enforceLimi
 		enforceByte = 1
 	}
 
-	if !isT3() {
+	if isT2() {
 		return encodeCalldata(
 			authorizeKeySelector,
 			addressToBytes32(keyAddr),
