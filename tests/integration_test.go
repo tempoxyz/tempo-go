@@ -58,12 +58,21 @@ func mustDecodeSelector(sel string) []byte {
 }
 
 var rpcURL string
+var hardfork string
 
 func init() {
 	rpcURL = os.Getenv("TEMPO_RPC_URL")
 	if rpcURL == "" {
 		panic("TEMPO_RPC_URL environment variable must be set to run integration tests. Example: export TEMPO_RPC_URL=https://rpc.moderato.tempo.xyz")
 	}
+	hardfork = os.Getenv("TEMPO_HARDFORK")
+	if hardfork == "" {
+		hardfork = "T3"
+	}
+}
+
+func isT3() bool {
+	return hardfork >= "T3"
 }
 
 // testContext encapsulates common test dependencies and helpers
@@ -579,15 +588,7 @@ func TestIntegration_AccessKeys(t *testing.T) {
 	t.Logf("Access key: %s", accessKey.Address().Hex())
 
 	t.Run("AuthorizeAccessKey", func(t *testing.T) {
-		calldata := encodeCalldata(
-			authorizeKeySelector,
-			addressToBytes32(accessKey.Address()),
-			padLeft32([]byte{0}),
-			uint256ToBytes32(big.NewInt(1893456000)),
-			padLeft32([]byte{0}),
-			uint256ToBytes32(big.NewInt(0xa0)),
-			uint256ToBytes32(big.NewInt(0)),
-		)
+		calldata := buildAuthorizeKeyCalldata(accessKey.Address(), 1893456000, false)
 
 		eip1559Tx := types.NewTx(&types.DynamicFeeTx{
 			ChainID:   big.NewInt(tc.chainID),
@@ -698,15 +699,7 @@ func TestIntegration_KeychainSelectors(t *testing.T) {
 	t.Logf("Access key: %s", accessKey.Address().Hex())
 
 	// Step 1: Authorize the key with enforceLimits=false, empty TokenLimit[]
-	authCalldata := encodeCalldata(
-		authorizeKeySelector,
-		addressToBytes32(accessKey.Address()),
-		padLeft32([]byte{0}), // Secp256k1
-		uint256ToBytes32(big.NewInt(expiry)),
-		padLeft32([]byte{0}),               // enforceLimits = false
-		uint256ToBytes32(big.NewInt(0xa0)), // offset to dynamic array
-		uint256ToBytes32(big.NewInt(0)),    // array length = 0
-	)
+	authCalldata := buildAuthorizeKeyCalldata(accessKey.Address(), expiry, false)
 
 	authTx := tc.newTxBuilder().
 		SetNonce(tc.getNonce(rootAccount.Address())).
@@ -925,6 +918,45 @@ func TestIntegration_SetUserFeeToken(t *testing.T) {
 // TestIntegration_DEXOperations tests DEX operations (skipped - require liquidity setup)
 func TestIntegration_DEXOperations(t *testing.T) {
 	t.Skip("DEX operations require liquidity setup - works with full tempo-check.sh flow")
+}
+
+// buildAuthorizeKeyCalldata builds ABI-encoded calldata for authorizeKey,
+// using the legacy flat-param ABI on pre-T3 and the KeyRestrictions struct on T3+.
+func buildAuthorizeKeyCalldata(keyAddr common.Address, expiry int64, enforceLimits bool) []byte {
+	enforceByte := byte(0)
+	if enforceLimits {
+		enforceByte = 1
+	}
+
+	if !isT3() {
+		return encodeCalldata(
+			authorizeKeySelector,
+			addressToBytes32(keyAddr),
+			padLeft32([]byte{0}),
+			uint256ToBytes32(big.NewInt(expiry)),
+			padLeft32([]byte{enforceByte}),
+			uint256ToBytes32(big.NewInt(0xa0)),
+			uint256ToBytes32(big.NewInt(0)),
+		)
+	}
+
+	// T3+: authorizeKey(address,uint8,KeyRestrictions)
+	// KeyRestrictions = (uint64 expiry, bool enforceLimits, TokenLimit[] limits, bool allowAnyCalls, CallScope[] allowedCalls)
+	sel := mustDecodeSelector(keychain.AuthorizeKeyT3Selector)
+	return encodeCalldata(
+		sel,
+		addressToBytes32(keyAddr),
+		padLeft32([]byte{0}),               // Secp256k1
+		uint256ToBytes32(big.NewInt(0x60)), // offset to KeyRestrictions tuple
+		// KeyRestrictions struct:
+		uint256ToBytes32(big.NewInt(expiry)),     // expiry
+		padLeft32([]byte{enforceByte}),           // enforceLimits
+		uint256ToBytes32(big.NewInt(0xa0)),       // offset to limits array (relative to struct start)
+		padLeft32([]byte{1}),                     // allowAnyCalls = true
+		uint256ToBytes32(big.NewInt(0xc0)),       // offset to allowedCalls array (relative to struct start)
+		uint256ToBytes32(big.NewInt(0)),          // limits.length = 0
+		uint256ToBytes32(big.NewInt(0)),          // allowedCalls.length = 0
+	)
 }
 
 // TestIntegration_BuilderValidation tests the BuildAndValidate method

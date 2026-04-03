@@ -58,8 +58,13 @@ func GetKeychainAddress() common.Address {
 	return common.HexToAddress(AccountKeychainAddress)
 }
 
-// AuthorizeKeySelector is the function selector for authorizeKey(address,uint8,uint64,bool,(address,uint256)[]).
+// AuthorizeKeySelector is the function selector for the legacy (pre-T3)
+// authorizeKey(address,uint8,uint64,bool,(address,uint256)[]).
 const AuthorizeKeySelector = "0x54063a55"
+
+// AuthorizeKeyT3Selector is the function selector for the T3+
+// authorizeKey(address,uint8,(uint64,bool,(address,uint256,uint64)[],bool,(address,(bytes4,address[])[])[]))
+const AuthorizeKeyT3Selector = "0x980a6025"
 
 // RevokeKeySelector is the function selector for revokeKey(address).
 const RevokeKeySelector = "0x5ae7ab32"
