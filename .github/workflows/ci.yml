@@ -135,3 +135,4 @@ jobs:
       run: go test -v -run TestIntegration -timeout=10m ./tests
       env:
         TEMPO_RPC_URL: ${{ secrets.TEMPO_TESTNET_RPC_URL }}
+        TEMPO_HARDFORK: T2
