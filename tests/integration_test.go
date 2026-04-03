@@ -949,13 +949,13 @@ func buildAuthorizeKeyCalldata(keyAddr common.Address, expiry int64, enforceLimi
 		padLeft32([]byte{0}),               // Secp256k1
 		uint256ToBytes32(big.NewInt(0x60)), // offset to KeyRestrictions tuple
 		// KeyRestrictions struct:
-		uint256ToBytes32(big.NewInt(expiry)),     // expiry
-		padLeft32([]byte{enforceByte}),           // enforceLimits
-		uint256ToBytes32(big.NewInt(0xa0)),       // offset to limits array (relative to struct start)
-		padLeft32([]byte{1}),                     // allowAnyCalls = true
-		uint256ToBytes32(big.NewInt(0xc0)),       // offset to allowedCalls array (relative to struct start)
-		uint256ToBytes32(big.NewInt(0)),          // limits.length = 0
-		uint256ToBytes32(big.NewInt(0)),          // allowedCalls.length = 0
+		uint256ToBytes32(big.NewInt(expiry)), // expiry
+		padLeft32([]byte{enforceByte}),       // enforceLimits
+		uint256ToBytes32(big.NewInt(0xa0)),   // offset to limits array (relative to struct start)
+		padLeft32([]byte{1}),                 // allowAnyCalls = true
+		uint256ToBytes32(big.NewInt(0xc0)),   // offset to allowedCalls array (relative to struct start)
+		uint256ToBytes32(big.NewInt(0)),      // limits.length = 0
+		uint256ToBytes32(big.NewInt(0)),      // allowedCalls.length = 0
 	)
 }
 
