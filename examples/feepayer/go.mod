@@ -1,9 +1,9 @@
 module github.com/tempoxyz/tempo-go/examples/feepayer
 
-go 1.24.0
+go 1.24.13
 
 require (
-	github.com/ethereum/go-ethereum v1.16.8
+	github.com/ethereum/go-ethereum v1.16.9
 	github.com/joho/godotenv v1.5.1
 	github.com/tempoxyz/tempo-go v0.0.0
 )
@@ -15,6 +15,6 @@ require (
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.0.1 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/holiman/uint256 v1.3.2 // indirect
-	golang.org/x/crypto v0.36.0 // indirect
-	golang.org/x/sys v0.36.0 // indirect
+	golang.org/x/crypto v0.48.0 // indirect
+	golang.org/x/sys v0.41.0 // indirect
 )
