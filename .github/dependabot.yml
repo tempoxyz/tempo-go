@@ -4,6 +4,9 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 3
+      semver-major-days: 7
     groups:
       go-deps:
         patterns: ["*"]
@@ -12,6 +15,9 @@ updates:
     directory: /examples/feepayer
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 3
+      semver-major-days: 7
     groups:
       go-deps:
         patterns: ["*"]
@@ -20,6 +26,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 3
     groups:
       actions:
         patterns: ["*"]
