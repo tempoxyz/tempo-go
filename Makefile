@@ -25,6 +25,7 @@ test-coverage:
 
 # Run checks as well as unit tests
 check:
+	go mod verify
 	test -z "$$(gofmt -l .)" || (echo "Code needs formatting. Run 'make fix'" && gofmt -l . && exit 1)
 	go vet ./...
 	go test -race ./pkg/transaction ./pkg/signer ./pkg/client
