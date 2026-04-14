@@ -1,6 +1,6 @@
 module github.com/tempoxyz/tempo-go/examples/feepayer
 
-go 1.24.13
+go 1.25.9
 
 require (
 	github.com/ethereum/go-ethereum v1.17.0
