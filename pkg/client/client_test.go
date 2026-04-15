@@ -592,68 +592,6 @@ func TestGetBlockNumber(t *testing.T) {
 	})
 }
 
-func TestEstimateGas(t *testing.T) {
-	t.Run("success", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			var req JSONRPCRequest
-			json.NewDecoder(r.Body).Decode(&req)
-
-			assert.Equal(t, "eth_estimateGas", req.Method)
-			assert.Len(t, req.Params, 1)
-
-			w.Header().Set("Content-Type", "application/json")
-			resp := NewJSONRPCResponse(req.ID, "0x5208")
-			json.NewEncoder(w).Encode(resp)
-		}))
-		defer server.Close()
-
-		client := New(server.URL)
-		gas, err := client.EstimateGas(context.Background(), map[string]any{
-			"from": "0x1234567890123456789012345678901234567890",
-			"to":   "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
-		})
-
-		assert.NoError(t, err)
-		assert.Equal(t, uint64(21000), gas)
-	})
-
-	t.Run("invalid result type", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			var req JSONRPCRequest
-			json.NewDecoder(r.Body).Decode(&req)
-
-			w.Header().Set("Content-Type", "application/json")
-			resp := NewJSONRPCResponse(req.ID, 21000)
-			json.NewEncoder(w).Encode(resp)
-		}))
-		defer server.Close()
-
-		client := New(server.URL)
-		_, err := client.EstimateGas(context.Background(), map[string]any{"from": "0xabcd"})
-
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "unexpected result type")
-	})
-
-	t.Run("rpc error", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			var req JSONRPCRequest
-			json.NewDecoder(r.Body).Decode(&req)
-
-			w.Header().Set("Content-Type", "application/json")
-			resp := NewJSONRPCErrorResponse(req.ID, InvalidParams, "bad call object", nil)
-			json.NewEncoder(w).Encode(resp)
-		}))
-		defer server.Close()
-
-		client := New(server.URL)
-		_, err := client.EstimateGas(context.Background(), map[string]any{"from": "0xabcd"})
-
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "bad call object")
-	})
-}
-
 func TestGetTransactionReceipt(t *testing.T) {
 	t.Run("receipt found", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

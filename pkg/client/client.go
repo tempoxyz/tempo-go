@@ -259,22 +259,6 @@ func (c *Client) GetNonce(ctx context.Context, address string, nonceKey *big.Int
 	return parseHexUint64(resultHex)
 }
 
-// EstimateGas estimates the gas cost for the provided call object.
-func (c *Client) EstimateGas(ctx context.Context, call map[string]any) (uint64, error) {
-	response, err := c.SendRequest(ctx, "eth_estimateGas", call)
-	if err != nil {
-		return 0, err
-	}
-	if err := response.CheckError(); err != nil {
-		return 0, err
-	}
-	gasHex, ok := response.Result.(string)
-	if !ok {
-		return 0, fmt.Errorf("unexpected result type: %T", response.Result)
-	}
-	return parseHexUint64(gasHex)
-}
-
 // GetBlockNumber gets the current block number.
 // This is a useful proxy for making sure that the RPC is responsive.
 func (c *Client) GetBlockNumber(ctx context.Context) (uint64, error) {
