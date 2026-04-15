@@ -10,9 +10,9 @@ import (
 
 // TIP20 function selectors.
 var (
-	SelectorTransfer         = [4]byte{0xa9, 0x05, 0x9c, 0xbb} // transfer(address,uint256)
-	SelectorApprove          = [4]byte{0x09, 0x5e, 0xa7, 0xb3} // approve(address,uint256)
-	SelectorTransferWithMemo = [4]byte{0x95, 0x77, 0x7d, 0x59} // transferWithMemo(address,uint256,bytes32)
+	SelectorTransfer         = [4]byte{0xa9, 0x05, 0x9c, 0xbb} // cast sig "transfer(address,uint256)" = 0xa9059cbb
+	SelectorApprove          = [4]byte{0x09, 0x5e, 0xa7, 0xb3} // cast sig "approve(address,uint256)" = 0x095ea7b3
+	SelectorTransferWithMemo = [4]byte{0x95, 0x77, 0x7d, 0x59} // cast sig "transferWithMemo(address,uint256,bytes32)" = 0x95777d59
 	SelectorWildcard         = [4]byte{0x00, 0x00, 0x00, 0x00}
 )
 

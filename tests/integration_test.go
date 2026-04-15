@@ -273,6 +273,43 @@ func (tc *testContext) waitForReceipt(txHash string) map[string]interface{} {
 	return nil
 }
 
+// getTransactionByHash fetches a transaction from the node.
+func (tc *testContext) getTransactionByHash(txHash string) map[string]interface{} {
+	tc.t.Helper()
+	resp, err := tc.client.SendRequest(tc.ctx, "eth_getTransactionByHash", txHash)
+	require.NoError(tc.t, err)
+	require.NoError(tc.t, resp.CheckError())
+
+	txObj, ok := resp.Result.(map[string]interface{})
+	require.True(tc.t, ok, "expected transaction object result, got %T", resp.Result)
+	return txObj
+}
+
+// getFirstCallData extracts calldata from a fetched transaction.
+// Tempo transactions may expose calldata either as top-level input or within the first call.
+func getFirstCallData(txObj map[string]interface{}) (string, bool) {
+	if input, ok := txObj["input"].(string); ok && input != "" && input != "0x" {
+		return input, true
+	}
+
+	calls, ok := txObj["calls"].([]interface{})
+	if !ok || len(calls) == 0 {
+		return "", false
+	}
+
+	call, ok := calls[0].(map[string]interface{})
+	if !ok {
+		return "", false
+	}
+	if data, ok := call["data"].(string); ok && data != "" {
+		return data, true
+	}
+	if input, ok := call["input"].(string); ok && input != "" {
+		return input, true
+	}
+	return "", false
+}
+
 // formatReceipt logs a formatted transaction receipt
 func (tc *testContext) formatReceipt(receipt map[string]interface{}) {
 	tc.t.Helper()
@@ -401,6 +438,79 @@ func TestIntegration_SimpleTransaction(t *testing.T) {
 	require.NoError(t, err)
 
 	tc.sendTxExpectSuccess(tx, "Transaction failed")
+}
+
+// TestIntegration_TIP20Selectors tests that TIP-20 calldata on a local node matches the selector constants.
+func TestIntegration_TIP20Selectors(t *testing.T) {
+	tc := newTestContext(t)
+	sender := tc.createAndFundSigner()
+	recipient := tc.createAndFundSigner()
+	memo := mustDecodeHex("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+	amount := big.NewInt(1)
+	approvalAmount := big.NewInt(12345)
+
+	tests := []struct {
+		name     string
+		selector [4]byte
+		build    func() []byte
+	}{
+		{
+			name:     "transfer",
+			selector: keychain.SelectorTransfer,
+			build: func() []byte {
+				data, err := transaction.EncodeTIP20TransferData(recipient.Address(), amount)
+				require.NoError(t, err)
+				return data
+			},
+		},
+		{
+			name:     "approve",
+			selector: keychain.SelectorApprove,
+			build: func() []byte {
+				return encodeCalldata(
+					keychain.SelectorApprove[:],
+					addressToBytes32(recipient.Address()),
+					uint256ToBytes32(approvalAmount),
+				)
+			},
+		},
+		{
+			name:     "transferWithMemo",
+			selector: keychain.SelectorTransferWithMemo,
+			build: func() []byte {
+				data, err := transaction.EncodeTIP20TransferWithMemoData(recipient.Address(), amount, memo)
+				require.NoError(t, err)
+				return data
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			calldata := tt.build()
+			tx := tc.newTxBuilder().
+				SetNonce(tc.getNonce(sender.Address())).
+				SetGas(300000).
+				AddCall(nativeFeeToken, big.NewInt(0), calldata).
+				Build()
+
+			err := transaction.SignTransaction(tx, sender)
+			require.NoError(t, err)
+
+			receipt, txHash := tc.sendTx(tx)
+			require.NotNil(t, receipt, "failed to get receipt")
+			status, _ := receipt["status"].(string)
+			require.Equal(t, "0x1", status, "transaction failed")
+
+			fetchedTx := tc.getTransactionByHash(txHash)
+			callData, ok := getFirstCallData(fetchedTx)
+			require.True(t, ok, "expected calldata in transaction response: %#v", fetchedTx)
+
+			expectedSelector := "0x" + hex.EncodeToString(tt.selector[:])
+			assert.True(t, strings.HasPrefix(strings.ToLower(callData), strings.ToLower(expectedSelector)), "expected calldata %s to start with selector %s", callData, expectedSelector)
+			assert.Equal(t, strings.ToLower("0x"+hex.EncodeToString(calldata)), strings.ToLower(callData), "node returned unexpected calldata")
+		})
+	}
 }
 
 // TestIntegration_FeeTokenLiquidity tests adding fee token liquidity
