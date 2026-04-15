@@ -353,52 +353,6 @@ func TestParseHexUint64(t *testing.T) {
 	}
 }
 
-func TestParseHexBigInt(t *testing.T) {
-	tests := []struct {
-		name      string
-		input     string
-		want      *big.Int
-		wantError bool
-	}{
-		{
-			name:      "with 0x prefix",
-			input:     "0x1a",
-			want:      big.NewInt(26),
-			wantError: false,
-		},
-		{
-			name:      "without 0x prefix",
-			input:     "ff",
-			want:      big.NewInt(255),
-			wantError: false,
-		},
-		{
-			name:      "empty hex payload is zero",
-			input:     "0x",
-			want:      big.NewInt(0),
-			wantError: false,
-		},
-		{
-			name:      "invalid hex",
-			input:     "0xzzzz",
-			want:      nil,
-			wantError: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result, err := parseHexBigInt(tt.input)
-			if tt.wantError {
-				assert.Error(t, err)
-				return
-			}
-			assert.NoError(t, err)
-			assert.Equal(t, 0, result.Cmp(tt.want))
-		})
-	}
-}
-
 func TestGetTransactionCount(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -635,64 +589,6 @@ func TestGetBlockNumber(t *testing.T) {
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "unexpected result type")
-	})
-}
-
-func TestGasPrice(t *testing.T) {
-	t.Run("success", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			var req JSONRPCRequest
-			json.NewDecoder(r.Body).Decode(&req)
-
-			assert.Equal(t, "eth_gasPrice", req.Method)
-
-			w.Header().Set("Content-Type", "application/json")
-			resp := NewJSONRPCResponse(req.ID, "0x77359400")
-			json.NewEncoder(w).Encode(resp)
-		}))
-		defer server.Close()
-
-		client := New(server.URL)
-		gasPrice, err := client.GasPrice(context.Background())
-
-		assert.NoError(t, err)
-		assert.Equal(t, 0, gasPrice.Cmp(big.NewInt(2000000000)))
-	})
-
-	t.Run("invalid result type", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			var req JSONRPCRequest
-			json.NewDecoder(r.Body).Decode(&req)
-
-			w.Header().Set("Content-Type", "application/json")
-			resp := NewJSONRPCResponse(req.ID, true)
-			json.NewEncoder(w).Encode(resp)
-		}))
-		defer server.Close()
-
-		client := New(server.URL)
-		_, err := client.GasPrice(context.Background())
-
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "unexpected result type")
-	})
-
-	t.Run("rpc error", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			var req JSONRPCRequest
-			json.NewDecoder(r.Body).Decode(&req)
-
-			w.Header().Set("Content-Type", "application/json")
-			resp := NewJSONRPCErrorResponse(req.ID, InternalError, "gas unavailable", nil)
-			json.NewEncoder(w).Encode(resp)
-		}))
-		defer server.Close()
-
-		client := New(server.URL)
-		_, err := client.GasPrice(context.Background())
-
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "gas unavailable")
 	})
 }
 

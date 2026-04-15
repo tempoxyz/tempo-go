@@ -16,20 +16,12 @@ const (
 	TIP20ApproveSelector = "095ea7b3"
 	// TIP20TransferWithMemoSelector is the transferWithMemo(address,uint256,bytes32) selector without a 0x prefix.
 	TIP20TransferWithMemoSelector = "95777d59"
-	// MainnetUSDCAddressHex is Circle's USDC contract on Tempo mainnet.
-	MainnetUSDCAddressHex = "0x20C000000000000000000000b9537d11c60E8b50"
 )
 
 // Common Tempo token and precompile addresses.
 var (
 	// PathUSDAddress is Tempo's native fee token address.
 	PathUSDAddress = common.HexToAddress("0x20c0000000000000000000000000000000000000")
-	// BetaUSDAddress is the BetaUSD token address.
-	BetaUSDAddress = common.HexToAddress("0x20c0000000000000000000000000000000000002")
-	// ThetaUSDAddress is the ThetaUSD token address.
-	ThetaUSDAddress = common.HexToAddress("0x20c0000000000000000000000000000000000003")
-	// MainnetUSDCAddress is Circle's USDC contract on Tempo mainnet.
-	MainnetUSDCAddress = common.HexToAddress(MainnetUSDCAddressHex)
 	// FeeManagerAddress is the fee manager precompile.
 	FeeManagerAddress = common.HexToAddress("0xfeec000000000000000000000000000000000000")
 	// StablecoinDEXAddress is the stablecoin DEX precompile.

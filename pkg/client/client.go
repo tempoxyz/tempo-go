@@ -198,18 +198,6 @@ func parseHexUint64(s string) (uint64, error) {
 	return strconv.ParseUint(strings.TrimPrefix(s, "0x"), 16, 64)
 }
 
-func parseHexBigInt(s string) (*big.Int, error) {
-	trimmed := strings.TrimPrefix(s, "0x")
-	if trimmed == "" {
-		return big.NewInt(0), nil
-	}
-	parsed, ok := new(big.Int).SetString(trimmed, 16)
-	if !ok {
-		return nil, fmt.Errorf("invalid hex integer %q", s)
-	}
-	return parsed, nil
-}
-
 // GetTransactionCount gets the nonce for an address using the default nonce key (0).
 func (c *Client) GetTransactionCount(ctx context.Context, address string) (uint64, error) {
 	response, err := c.SendRequest(ctx, "eth_getTransactionCount", address, "pending")
@@ -269,22 +257,6 @@ func (c *Client) GetNonce(ctx context.Context, address string, nonceKey *big.Int
 	}
 
 	return parseHexUint64(resultHex)
-}
-
-// GasPrice gets the current gas price from the connected node.
-func (c *Client) GasPrice(ctx context.Context) (*big.Int, error) {
-	response, err := c.SendRequest(ctx, "eth_gasPrice")
-	if err != nil {
-		return nil, err
-	}
-	if err := response.CheckError(); err != nil {
-		return nil, err
-	}
-	gasPriceHex, ok := response.Result.(string)
-	if !ok {
-		return nil, fmt.Errorf("unexpected result type: %T", response.Result)
-	}
-	return parseHexBigInt(gasPriceHex)
 }
 
 // EstimateGas estimates the gas cost for the provided call object.
