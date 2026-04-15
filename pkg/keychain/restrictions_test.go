@@ -81,6 +81,13 @@ func TestCallScopeBuilder_TransferWithMemo(t *testing.T) {
 	}
 }
 
+func TestSelectorTransferWithMemoValue(t *testing.T) {
+	expected := [4]byte{0x95, 0x77, 0x7d, 0x59}
+	if SelectorTransferWithMemo != expected {
+		t.Errorf("expected transferWithMemo selector %x, got %x", expected, SelectorTransferWithMemo)
+	}
+}
+
 func TestCallScopeBuilder_Chained(t *testing.T) {
 	target := common.HexToAddress("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 	scope := NewCallScopeBuilder(target).

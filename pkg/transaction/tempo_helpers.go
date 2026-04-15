@@ -1,6 +1,7 @@
 package transaction
 
 import (
+	"encoding/hex"
 	"fmt"
 	"math/big"
 	"strings"
@@ -16,6 +17,13 @@ const (
 	TIP20ApproveSelector = "095ea7b3"
 	// TIP20TransferWithMemoSelector is the transferWithMemo(address,uint256,bytes32) selector without a 0x prefix.
 	TIP20TransferWithMemoSelector = "95777d59"
+	tip20SelectorSize             = 4
+	tip20ABISlotSize              = 32
+	tip20TransferCalldataSize     = tip20SelectorSize + (2 * tip20ABISlotSize)
+	tip20TransferWithMemoDataSize = tip20SelectorSize + (3 * tip20ABISlotSize)
+	tip20AddressOffset            = tip20SelectorSize + tip20ABISlotSize - common.AddressLength
+	tip20AmountOffset             = tip20SelectorSize + tip20ABISlotSize
+	tip20MemoOffset               = tip20AmountOffset + tip20ABISlotSize
 )
 
 // Common Tempo token and precompile addresses.
@@ -41,10 +49,10 @@ var (
 
 // EncodeTIP20TransferData encodes TIP-20 transfer(address,uint256) calldata.
 func EncodeTIP20TransferData(recipient common.Address, amount *big.Int) ([]byte, error) {
-	data := make([]byte, 4+32+32)
-	copy(data[:4], tip20TransferSelectorBytes[:])
-	copy(data[16:36], recipient.Bytes())
-	if err := encodeUint256(amount, data[36:68]); err != nil {
+	data := make([]byte, tip20TransferCalldataSize)
+	copy(data[:tip20SelectorSize], tip20TransferSelectorBytes[:])
+	copy(data[tip20AddressOffset:tip20AmountOffset], recipient.Bytes())
+	if err := encodeUint256(amount, data[tip20AmountOffset:tip20TransferCalldataSize]); err != nil {
 		return nil, err
 	}
 	return data, nil
@@ -52,27 +60,31 @@ func EncodeTIP20TransferData(recipient common.Address, amount *big.Int) ([]byte,
 
 // EncodeTIP20TransferWithMemoData encodes TIP-20 transferWithMemo(address,uint256,bytes32) calldata.
 func EncodeTIP20TransferWithMemoData(recipient common.Address, amount *big.Int, memo []byte) ([]byte, error) {
-	if len(memo) != 32 {
+	if len(memo) != tip20ABISlotSize {
 		return nil, fmt.Errorf("memo must be exactly 32 bytes")
 	}
-	data := make([]byte, 4+32+32+32)
-	copy(data[:4], tip20TransferWithMemoSelectorBytes[:])
-	copy(data[16:36], recipient.Bytes())
-	if err := encodeUint256(amount, data[36:68]); err != nil {
+	data := make([]byte, tip20TransferWithMemoDataSize)
+	copy(data[:tip20SelectorSize], tip20TransferWithMemoSelectorBytes[:])
+	copy(data[tip20AddressOffset:tip20AmountOffset], recipient.Bytes())
+	if err := encodeUint256(amount, data[tip20AmountOffset:tip20MemoOffset]); err != nil {
 		return nil, err
 	}
-	copy(data[68:100], memo)
+	copy(data[tip20MemoOffset:tip20TransferWithMemoDataSize], memo)
 	return data, nil
 }
 
 // ParseTopicAddress extracts the indexed address stored in an event topic.
 // Invalid topics return the zero address.
 func ParseTopicAddress(topic string) common.Address {
-	trimmed := strings.TrimPrefix(strings.ToLower(topic), "0x")
-	if len(trimmed) < 40 {
+	trimmed := strings.TrimPrefix(strings.TrimPrefix(topic, "0x"), "0X")
+	if len(trimmed) != common.HashLength*2 {
 		return common.Address{}
 	}
-	return common.HexToAddress("0x" + trimmed[len(trimmed)-40:])
+	topicBytes, err := hex.DecodeString(trimmed)
+	if err != nil {
+		return common.Address{}
+	}
+	return common.BytesToAddress(topicBytes[common.HashLength-common.AddressLength:])
 }
 
 func encodeUint256(value *big.Int, dst []byte) error {

@@ -12,7 +12,7 @@ import (
 var (
 	SelectorTransfer         = [4]byte{0xa9, 0x05, 0x9c, 0xbb} // transfer(address,uint256)
 	SelectorApprove          = [4]byte{0x09, 0x5e, 0xa7, 0xb3} // approve(address,uint256)
-	SelectorTransferWithMemo = [4]byte{0x44, 0x7b, 0x73, 0x2f} // transferWithMemo(address,uint256,bytes32)
+	SelectorTransferWithMemo = [4]byte{0x95, 0x77, 0x7d, 0x59} // transferWithMemo(address,uint256,bytes32)
 	SelectorWildcard         = [4]byte{0x00, 0x00, 0x00, 0x00}
 )
 

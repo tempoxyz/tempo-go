@@ -1,14 +1,30 @@
 package transaction
 
 import (
+	"bytes"
 	"encoding/hex"
 	"math/big"
+	"strings"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+var tip20TestABI = mustParseTIP20ABI()
+
+func mustParseTIP20ABI() abi.ABI {
+	parsed, err := abi.JSON(strings.NewReader(`[
+		{"type":"function","name":"transfer","inputs":[{"name":"recipient","type":"address"},{"name":"amount","type":"uint256"}],"outputs":[]},
+		{"type":"function","name":"transferWithMemo","inputs":[{"name":"recipient","type":"address"},{"name":"amount","type":"uint256"},{"name":"memo","type":"bytes32"}],"outputs":[]}
+	]`))
+	if err != nil {
+		panic(err)
+	}
+	return parsed
+}
 
 func TestEncodeTIP20TransferData(t *testing.T) {
 	recipient := common.HexToAddress("0x70997970C51812dc3A010C7d01b50e0d17dc79C8")
@@ -17,10 +33,10 @@ func TestEncodeTIP20TransferData(t *testing.T) {
 	data, err := EncodeTIP20TransferData(recipient, amount)
 	require.NoError(t, err)
 
-	assert.Equal(t, TIP20TransferSelector, hex.EncodeToString(data[:4]))
-	assert.Len(t, data, 68)
-	assert.Equal(t, recipient.Bytes(), data[16:36])
-	assert.Equal(t, amount.Bytes(), bytesTrimLeftZero(data[36:68]))
+	assert.Equal(t, TIP20TransferSelector, hex.EncodeToString(data[:tip20SelectorSize]))
+	assert.Len(t, data, tip20TransferCalldataSize)
+	assert.Equal(t, recipient.Bytes(), data[tip20AddressOffset:tip20AmountOffset])
+	assert.Equal(t, amount.Bytes(), bytesTrimLeftZero(data[tip20AmountOffset:tip20TransferCalldataSize]))
 }
 
 func TestEncodeTIP20TransferDataRejectsOutOfRangeAmount(t *testing.T) {
@@ -37,11 +53,11 @@ func TestEncodeTIP20TransferWithMemoData(t *testing.T) {
 	data, err := EncodeTIP20TransferWithMemoData(recipient, amount, memo)
 	require.NoError(t, err)
 
-	assert.Equal(t, TIP20TransferWithMemoSelector, hex.EncodeToString(data[:4]))
-	assert.Len(t, data, 100)
-	assert.Equal(t, recipient.Bytes(), data[16:36])
-	assert.Equal(t, amount.Bytes(), bytesTrimLeftZero(data[36:68]))
-	assert.Equal(t, memo, data[68:100])
+	assert.Equal(t, TIP20TransferWithMemoSelector, hex.EncodeToString(data[:tip20SelectorSize]))
+	assert.Len(t, data, tip20TransferWithMemoDataSize)
+	assert.Equal(t, recipient.Bytes(), data[tip20AddressOffset:tip20AmountOffset])
+	assert.Equal(t, amount.Bytes(), bytesTrimLeftZero(data[tip20AmountOffset:tip20MemoOffset]))
+	assert.Equal(t, memo, data[tip20MemoOffset:tip20TransferWithMemoDataSize])
 }
 
 func TestEncodeTIP20TransferWithMemoDataRejectsBadMemoLength(t *testing.T) {
@@ -67,6 +83,10 @@ func TestParseTopicAddress(t *testing.T) {
 
 	t.Run("invalid topic returns zero address", func(t *testing.T) {
 		assert.Equal(t, common.Address{}, ParseTopicAddress("0x1234"))
+	})
+
+	t.Run("non-hex topic returns zero address", func(t *testing.T) {
+		assert.Equal(t, common.Address{}, ParseTopicAddress("0xzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"))
 	})
 }
 
@@ -106,11 +126,12 @@ func FuzzEncodeTIP20TransferData(f *testing.F) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		if len(data) != 68 {
-			t.Fatalf("unexpected length: %d", len(data))
+		expected, err := tip20TestABI.Pack("transfer", recipient, amount)
+		if err != nil {
+			t.Fatalf("unexpected abi pack error: %v", err)
 		}
-		if hex.EncodeToString(data[:4]) != TIP20TransferSelector {
-			t.Fatalf("unexpected selector: %x", data[:4])
+		if !bytes.Equal(data, expected) {
+			t.Fatalf("encoded calldata mismatch: got %x want %x", data, expected)
 		}
 	})
 }
@@ -144,21 +165,46 @@ func FuzzEncodeTIP20TransferWithMemoData(f *testing.F) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if len(data) != 100 {
-			t.Fatalf("unexpected length: %d", len(data))
+
+		var memoWord [32]byte
+		copy(memoWord[:], memo)
+		expected, err := tip20TestABI.Pack("transferWithMemo", recipient, amount, memoWord)
+		if err != nil {
+			t.Fatalf("unexpected abi pack error: %v", err)
 		}
-		if hex.EncodeToString(data[:4]) != TIP20TransferWithMemoSelector {
-			t.Fatalf("unexpected selector: %x", data[:4])
+		if !bytes.Equal(data, expected) {
+			t.Fatalf("encoded calldata mismatch: got %x want %x", data, expected)
 		}
 	})
 }
 
 func FuzzParseTopicAddress(f *testing.F) {
-	f.Add("0x00000000000000000000000070997970C51812dc3A010C7d01b50e0d17dc79C8")
-	f.Add("0x1234")
-	f.Add("")
+	f.Add([]byte{0x70, 0x99, 0x79, 0x70, 0xc5, 0x18, 0x12, 0xdc, 0x3a, 0x01, 0x0c, 0x7d, 0x01, 0xb5, 0x0e, 0x0d, 0x17, 0xdc, 0x79, 0xc8}, true, false)
+	f.Add(make([]byte, 20), true, true)
+	f.Add([]byte{0x01}, false, false)
 
-	f.Fuzz(func(t *testing.T, topic string) {
-		_ = ParseTopicAddress(topic)
+	f.Fuzz(func(t *testing.T, addressBytes []byte, withPrefix, uppercase bool) {
+		var expected common.Address
+		if len(addressBytes) >= common.AddressLength {
+			copy(expected[:], addressBytes[:common.AddressLength])
+		} else if len(addressBytes) > 0 {
+			copy(expected[common.AddressLength-len(addressBytes):], addressBytes)
+		}
+
+		var topic [common.HashLength]byte
+		copy(topic[common.HashLength-common.AddressLength:], expected[:])
+
+		topicHex := hex.EncodeToString(topic[:])
+		if uppercase {
+			topicHex = strings.ToUpper(topicHex)
+		}
+		if withPrefix {
+			topicHex = "0x" + topicHex
+		}
+
+		parsed := ParseTopicAddress(topicHex)
+		if parsed != expected {
+			t.Fatalf("parsed address mismatch: got %s want %s", parsed.Hex(), expected.Hex())
+		}
 	})
 }
