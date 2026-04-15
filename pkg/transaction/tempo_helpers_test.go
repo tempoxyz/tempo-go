@@ -14,12 +14,19 @@ func TestEncodeTIP20TransferData(t *testing.T) {
 	recipient := common.HexToAddress("0x70997970C51812dc3A010C7d01b50e0d17dc79C8")
 	amount := big.NewInt(123456789)
 
-	data := EncodeTIP20TransferData(recipient, amount)
+	data, err := EncodeTIP20TransferData(recipient, amount)
+	require.NoError(t, err)
 
 	assert.Equal(t, TIP20TransferSelector, hex.EncodeToString(data[:4]))
 	assert.Len(t, data, 68)
 	assert.Equal(t, recipient.Bytes(), data[16:36])
 	assert.Equal(t, amount.Bytes(), bytesTrimLeftZero(data[36:68]))
+}
+
+func TestEncodeTIP20TransferDataRejectsOutOfRangeAmount(t *testing.T) {
+	_, err := EncodeTIP20TransferData(common.Address{}, new(big.Int).Lsh(big.NewInt(1), 256))
+
+	assert.EqualError(t, err, "amount exceeds uint256")
 }
 
 func TestEncodeTIP20TransferWithMemoData(t *testing.T) {
@@ -41,6 +48,12 @@ func TestEncodeTIP20TransferWithMemoDataRejectsBadMemoLength(t *testing.T) {
 	_, err := EncodeTIP20TransferWithMemoData(common.Address{}, big.NewInt(1), []byte{0x01, 0x02})
 
 	assert.EqualError(t, err, "memo must be exactly 32 bytes")
+}
+
+func TestEncodeTIP20TransferWithMemoDataRejectsOutOfRangeAmount(t *testing.T) {
+	_, err := EncodeTIP20TransferWithMemoData(common.Address{}, new(big.Int).Lsh(big.NewInt(1), 256), make([]byte, 32))
+
+	assert.EqualError(t, err, "amount exceeds uint256")
 }
 
 func TestParseTopicAddress(t *testing.T) {
@@ -70,4 +83,85 @@ func bytesTrimLeftZero(input []byte) []byte {
 		trimmed = trimmed[1:]
 	}
 	return trimmed
+}
+
+func FuzzEncodeTIP20TransferData(f *testing.F) {
+	f.Add([]byte{0x01, 0x02, 0x03}, []byte{0x2a})
+	f.Add(make([]byte, 20), []byte{})
+
+	f.Fuzz(func(t *testing.T, addressBytes, amountBytes []byte) {
+		var recipient common.Address
+		if len(addressBytes) >= 20 {
+			copy(recipient[:], addressBytes[:20])
+		} else if len(addressBytes) > 0 {
+			copy(recipient[20-len(addressBytes):], addressBytes)
+		}
+
+		amount := new(big.Int).SetBytes(amountBytes)
+		data, err := EncodeTIP20TransferData(recipient, amount)
+		if amount.BitLen() > 256 {
+			if err == nil {
+				t.Fatal("expected error for out-of-range amount")
+			}
+			return
+		}
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if len(data) != 68 {
+			t.Fatalf("unexpected length: %d", len(data))
+		}
+		if hex.EncodeToString(data[:4]) != TIP20TransferSelector {
+			t.Fatalf("unexpected selector: %x", data[:4])
+		}
+	})
+}
+
+func FuzzEncodeTIP20TransferWithMemoData(f *testing.F) {
+	f.Add([]byte{0x01, 0x02, 0x03}, []byte{0x2a}, make([]byte, 32))
+	f.Add(make([]byte, 20), []byte{}, []byte{0x01})
+
+	f.Fuzz(func(t *testing.T, addressBytes, amountBytes, memo []byte) {
+		var recipient common.Address
+		if len(addressBytes) >= 20 {
+			copy(recipient[:], addressBytes[:20])
+		} else if len(addressBytes) > 0 {
+			copy(recipient[20-len(addressBytes):], addressBytes)
+		}
+
+		amount := new(big.Int).SetBytes(amountBytes)
+		data, err := EncodeTIP20TransferWithMemoData(recipient, amount, memo)
+		if amount.BitLen() > 256 {
+			if err == nil {
+				t.Fatal("expected error for out-of-range amount")
+			}
+			return
+		}
+		if len(memo) != 32 {
+			if err == nil {
+				t.Fatal("expected error for invalid memo length")
+			}
+			return
+		}
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(data) != 100 {
+			t.Fatalf("unexpected length: %d", len(data))
+		}
+		if hex.EncodeToString(data[:4]) != TIP20TransferWithMemoSelector {
+			t.Fatalf("unexpected selector: %x", data[:4])
+		}
+	})
+}
+
+func FuzzParseTopicAddress(f *testing.F) {
+	f.Add("0x00000000000000000000000070997970C51812dc3A010C7d01b50e0d17dc79C8")
+	f.Add("0x1234")
+	f.Add("")
+
+	f.Fuzz(func(t *testing.T, topic string) {
+		_ = ParseTopicAddress(topic)
+	})
 }

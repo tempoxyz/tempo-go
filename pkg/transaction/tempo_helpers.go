@@ -48,14 +48,14 @@ var (
 )
 
 // EncodeTIP20TransferData encodes TIP-20 transfer(address,uint256) calldata.
-func EncodeTIP20TransferData(recipient common.Address, amount *big.Int) []byte {
+func EncodeTIP20TransferData(recipient common.Address, amount *big.Int) ([]byte, error) {
 	data := make([]byte, 4+32+32)
 	copy(data[:4], tip20TransferSelectorBytes[:])
 	copy(data[16:36], recipient.Bytes())
-	if amount != nil {
-		amount.FillBytes(data[36:68])
+	if err := encodeUint256(amount, data[36:68]); err != nil {
+		return nil, err
 	}
-	return data
+	return data, nil
 }
 
 // EncodeTIP20TransferWithMemoData encodes TIP-20 transferWithMemo(address,uint256,bytes32) calldata.
@@ -66,8 +66,8 @@ func EncodeTIP20TransferWithMemoData(recipient common.Address, amount *big.Int, 
 	data := make([]byte, 4+32+32+32)
 	copy(data[:4], tip20TransferWithMemoSelectorBytes[:])
 	copy(data[16:36], recipient.Bytes())
-	if amount != nil {
-		amount.FillBytes(data[36:68])
+	if err := encodeUint256(amount, data[36:68]); err != nil {
+		return nil, err
 	}
 	copy(data[68:100], memo)
 	return data, nil
@@ -81,4 +81,18 @@ func ParseTopicAddress(topic string) common.Address {
 		return common.Address{}
 	}
 	return common.HexToAddress("0x" + trimmed[len(trimmed)-40:])
+}
+
+func encodeUint256(value *big.Int, dst []byte) error {
+	if value == nil {
+		return nil
+	}
+	if value.Sign() < 0 {
+		return fmt.Errorf("amount must be non-negative")
+	}
+	if value.BitLen() > 256 {
+		return fmt.Errorf("amount exceeds uint256")
+	}
+	value.FillBytes(dst)
+	return nil
 }

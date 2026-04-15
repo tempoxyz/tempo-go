@@ -252,6 +252,12 @@ func TestSendRequest(t *testing.T) {
 	assert.Equal(t, "0x12345", resp.Result)
 }
 
+func TestRPCURL(t *testing.T) {
+	client := New("https://rpc.example.com")
+
+	assert.Equal(t, "https://rpc.example.com", client.RPCURL())
+}
+
 func TestBatchRequestBuilder(t *testing.T) {
 	batch := NewBatchRequest()
 
@@ -347,6 +353,52 @@ func TestParseHexUint64(t *testing.T) {
 	}
 }
 
+func TestParseHexBigInt(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     string
+		want      *big.Int
+		wantError bool
+	}{
+		{
+			name:      "with 0x prefix",
+			input:     "0x1a",
+			want:      big.NewInt(26),
+			wantError: false,
+		},
+		{
+			name:      "without 0x prefix",
+			input:     "ff",
+			want:      big.NewInt(255),
+			wantError: false,
+		},
+		{
+			name:      "empty hex payload is zero",
+			input:     "0x",
+			want:      big.NewInt(0),
+			wantError: false,
+		},
+		{
+			name:      "invalid hex",
+			input:     "0xzzzz",
+			want:      nil,
+			wantError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := parseHexBigInt(tt.input)
+			if tt.wantError {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
+			assert.Equal(t, 0, result.Cmp(tt.want))
+		})
+	}
+}
+
 func TestGetTransactionCount(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -420,6 +472,71 @@ func TestGetTransactionCount(t *testing.T) {
 
 		client := New(server.URL)
 		_, err := client.GetTransactionCount(context.Background(), "0xabcd")
+
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "unexpected result type")
+	})
+}
+
+func TestGetNonce(t *testing.T) {
+	t.Run("success with explicit nonce key", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var req JSONRPCRequest
+			err := json.NewDecoder(r.Body).Decode(&req)
+			assert.NoError(t, err)
+
+			assert.Equal(t, "eth_call", req.Method)
+			assert.Len(t, req.Params, 2)
+			callObject, ok := req.Params[0].(map[string]interface{})
+			assert.True(t, ok)
+			assert.Equal(t, nonceManagerAddress, callObject["to"])
+			assert.Contains(t, callObject["data"], "0x89535803")
+			assert.Equal(t, "latest", req.Params[1])
+
+			w.Header().Set("Content-Type", "application/json")
+			resp := NewJSONRPCResponse(req.ID, "0x2a")
+			json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		client := New(server.URL)
+		nonce, err := client.GetNonce(context.Background(), "0x1234567890123456789012345678901234567890", big.NewInt(7))
+
+		assert.NoError(t, err)
+		assert.Equal(t, uint64(42), nonce)
+	})
+
+	t.Run("success with nil nonce key", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var req JSONRPCRequest
+			_ = json.NewDecoder(r.Body).Decode(&req)
+
+			w.Header().Set("Content-Type", "application/json")
+			resp := NewJSONRPCResponse(req.ID, "0x0")
+			json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		client := New(server.URL)
+		nonce, err := client.GetNonce(context.Background(), "0xabcd", nil)
+
+		assert.NoError(t, err)
+		assert.Equal(t, uint64(0), nonce)
+	})
+
+	t.Run("invalid result type", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var req JSONRPCRequest
+			_ = json.NewDecoder(r.Body).Decode(&req)
+
+			w.Header().Set("Content-Type", "application/json")
+			resp := NewJSONRPCResponse(req.ID, 123)
+			json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		client := New(server.URL)
+		_, err := client.GetNonce(context.Background(), "0xabcd", big.NewInt(1))
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "unexpected result type")
@@ -559,6 +676,24 @@ func TestGasPrice(t *testing.T) {
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "unexpected result type")
 	})
+
+	t.Run("rpc error", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var req JSONRPCRequest
+			json.NewDecoder(r.Body).Decode(&req)
+
+			w.Header().Set("Content-Type", "application/json")
+			resp := NewJSONRPCErrorResponse(req.ID, InternalError, "gas unavailable", nil)
+			json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		client := New(server.URL)
+		_, err := client.GasPrice(context.Background())
+
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "gas unavailable")
+	})
 }
 
 func TestEstimateGas(t *testing.T) {
@@ -602,6 +737,24 @@ func TestEstimateGas(t *testing.T) {
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "unexpected result type")
+	})
+
+	t.Run("rpc error", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var req JSONRPCRequest
+			json.NewDecoder(r.Body).Decode(&req)
+
+			w.Header().Set("Content-Type", "application/json")
+			resp := NewJSONRPCErrorResponse(req.ID, InvalidParams, "bad call object", nil)
+			json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		client := New(server.URL)
+		_, err := client.EstimateGas(context.Background(), map[string]any{"from": "0xabcd"})
+
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "bad call object")
 	})
 }
 
@@ -647,6 +800,24 @@ func TestGetTransactionReceipt(t *testing.T) {
 		assert.Nil(t, receipt)
 	})
 
+	t.Run("empty receipt map treated as pending", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var req JSONRPCRequest
+			json.NewDecoder(r.Body).Decode(&req)
+
+			w.Header().Set("Content-Type", "application/json")
+			resp := NewJSONRPCResponse(req.ID, map[string]interface{}{})
+			json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		client := New(server.URL)
+		receipt, err := client.GetTransactionReceipt(context.Background(), "0xpending")
+
+		assert.NoError(t, err)
+		assert.Nil(t, receipt)
+	})
+
 	t.Run("invalid result type", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			var req JSONRPCRequest
@@ -663,6 +834,24 @@ func TestGetTransactionReceipt(t *testing.T) {
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "unexpected result type")
+	})
+
+	t.Run("rpc error", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var req JSONRPCRequest
+			json.NewDecoder(r.Body).Decode(&req)
+
+			w.Header().Set("Content-Type", "application/json")
+			resp := NewJSONRPCErrorResponse(req.ID, InternalError, "receipt unavailable", nil)
+			json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		client := New(server.URL)
+		_, err := client.GetTransactionReceipt(context.Background(), "0xabc123")
+
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "receipt unavailable")
 	})
 }
 
@@ -714,6 +903,85 @@ func TestWaitForReceipt(t *testing.T) {
 		_, err := client.WaitForReceipt(ctx, "0xpending", time.Millisecond)
 
 		assert.ErrorIs(t, err, context.DeadlineExceeded)
+	})
+
+	t.Run("rpc error", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var req JSONRPCRequest
+			json.NewDecoder(r.Body).Decode(&req)
+
+			w.Header().Set("Content-Type", "application/json")
+			resp := NewJSONRPCErrorResponse(req.ID, InternalError, "receipt fetch failed", nil)
+			json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		client := New(server.URL)
+		_, err := client.WaitForReceipt(context.Background(), "0xpending", time.Millisecond)
+
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "receipt fetch failed")
+	})
+
+	t.Run("zero poll interval uses default path", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var req JSONRPCRequest
+			json.NewDecoder(r.Body).Decode(&req)
+
+			w.Header().Set("Content-Type", "application/json")
+			resp := NewJSONRPCResponse(req.ID, map[string]interface{}{
+				"transactionHash": "0xdefault",
+				"status":          "0x1",
+			})
+			json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		client := New(server.URL)
+		receipt, err := client.WaitForReceipt(context.Background(), "0xdefault", 0)
+
+		assert.NoError(t, err)
+		assert.Equal(t, "0xdefault", receipt["transactionHash"])
+	})
+}
+
+func TestGetChainID(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var req JSONRPCRequest
+			_ = json.NewDecoder(r.Body).Decode(&req)
+
+			assert.Equal(t, "eth_chainId", req.Method)
+
+			w.Header().Set("Content-Type", "application/json")
+			resp := NewJSONRPCResponse(req.ID, "0xa5af")
+			json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		client := New(server.URL)
+		chainID, err := client.GetChainID(context.Background())
+
+		assert.NoError(t, err)
+		assert.Equal(t, uint64(42415), chainID)
+	})
+
+	t.Run("invalid result type", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var req JSONRPCRequest
+			_ = json.NewDecoder(r.Body).Decode(&req)
+
+			w.Header().Set("Content-Type", "application/json")
+			resp := NewJSONRPCResponse(req.ID, false)
+			json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		client := New(server.URL)
+		_, err := client.GetChainID(context.Background())
+
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "unexpected result type")
 	})
 }
 
