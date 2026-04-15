@@ -17,6 +17,7 @@ const (
 	methodSendRawTransaction     = "eth_sendRawTransaction"
 	methodSendRawTransactionSync = "eth_sendRawTransactionSync"
 	defaultTimeout               = 30 * time.Second
+	defaultReceiptPollInterval   = 2 * time.Second
 )
 
 // Client is a basic HTTP client for interacting with the Tempo blockchain.
@@ -197,6 +198,18 @@ func parseHexUint64(s string) (uint64, error) {
 	return strconv.ParseUint(strings.TrimPrefix(s, "0x"), 16, 64)
 }
 
+func parseHexBigInt(s string) (*big.Int, error) {
+	trimmed := strings.TrimPrefix(s, "0x")
+	if trimmed == "" {
+		return big.NewInt(0), nil
+	}
+	parsed, ok := new(big.Int).SetString(trimmed, 16)
+	if !ok {
+		return nil, fmt.Errorf("invalid hex integer %q", s)
+	}
+	return parsed, nil
+}
+
 // GetTransactionCount gets the nonce for an address using the default nonce key (0).
 func (c *Client) GetTransactionCount(ctx context.Context, address string) (uint64, error) {
 	response, err := c.SendRequest(ctx, "eth_getTransactionCount", address, "pending")
@@ -258,6 +271,38 @@ func (c *Client) GetNonce(ctx context.Context, address string, nonceKey *big.Int
 	return parseHexUint64(resultHex)
 }
 
+// GasPrice gets the current gas price from the connected node.
+func (c *Client) GasPrice(ctx context.Context) (*big.Int, error) {
+	response, err := c.SendRequest(ctx, "eth_gasPrice")
+	if err != nil {
+		return nil, err
+	}
+	if err := response.CheckError(); err != nil {
+		return nil, err
+	}
+	gasPriceHex, ok := response.Result.(string)
+	if !ok {
+		return nil, fmt.Errorf("unexpected result type: %T", response.Result)
+	}
+	return parseHexBigInt(gasPriceHex)
+}
+
+// EstimateGas estimates the gas cost for the provided call object.
+func (c *Client) EstimateGas(ctx context.Context, call map[string]any) (uint64, error) {
+	response, err := c.SendRequest(ctx, "eth_estimateGas", call)
+	if err != nil {
+		return 0, err
+	}
+	if err := response.CheckError(); err != nil {
+		return 0, err
+	}
+	gasHex, ok := response.Result.(string)
+	if !ok {
+		return 0, fmt.Errorf("unexpected result type: %T", response.Result)
+	}
+	return parseHexUint64(gasHex)
+}
+
 // GetBlockNumber gets the current block number.
 // This is a useful proxy for making sure that the RPC is responsive.
 func (c *Client) GetBlockNumber(ctx context.Context) (uint64, error) {
@@ -273,6 +318,56 @@ func (c *Client) GetBlockNumber(ctx context.Context) (uint64, error) {
 		return 0, fmt.Errorf("unexpected result type: %T", response.Result)
 	}
 	return parseHexUint64(blockNumHex)
+}
+
+// GetTransactionReceipt fetches a receipt by transaction hash.
+// It returns nil when the transaction has not been mined yet.
+func (c *Client) GetTransactionReceipt(ctx context.Context, txHash string) (map[string]interface{}, error) {
+	response, err := c.SendRequest(ctx, "eth_getTransactionReceipt", txHash)
+	if err != nil {
+		return nil, err
+	}
+	if err := response.CheckError(); err != nil {
+		return nil, err
+	}
+	if response.Result == nil {
+		return nil, nil
+	}
+	receipt, ok := response.Result.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("unexpected result type: %T", response.Result)
+	}
+	if len(receipt) == 0 {
+		return nil, nil
+	}
+	return receipt, nil
+}
+
+// WaitForReceipt polls until a transaction receipt is available or the context expires.
+// If pollInterval is zero or negative, a default interval is used.
+func (c *Client) WaitForReceipt(ctx context.Context, txHash string, pollInterval time.Duration) (map[string]interface{}, error) {
+	if pollInterval <= 0 {
+		pollInterval = defaultReceiptPollInterval
+	}
+	for {
+		receipt, err := c.GetTransactionReceipt(ctx, txHash)
+		if err != nil {
+			return nil, err
+		}
+		if receipt != nil {
+			return receipt, nil
+		}
+
+		timer := time.NewTimer(pollInterval)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
 }
 
 // GetChainID gets the chain ID from the connected node.

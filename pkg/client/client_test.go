@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -517,6 +518,202 @@ func TestGetBlockNumber(t *testing.T) {
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "unexpected result type")
+	})
+}
+
+func TestGasPrice(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var req JSONRPCRequest
+			json.NewDecoder(r.Body).Decode(&req)
+
+			assert.Equal(t, "eth_gasPrice", req.Method)
+
+			w.Header().Set("Content-Type", "application/json")
+			resp := NewJSONRPCResponse(req.ID, "0x77359400")
+			json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		client := New(server.URL)
+		gasPrice, err := client.GasPrice(context.Background())
+
+		assert.NoError(t, err)
+		assert.Equal(t, 0, gasPrice.Cmp(big.NewInt(2000000000)))
+	})
+
+	t.Run("invalid result type", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var req JSONRPCRequest
+			json.NewDecoder(r.Body).Decode(&req)
+
+			w.Header().Set("Content-Type", "application/json")
+			resp := NewJSONRPCResponse(req.ID, true)
+			json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		client := New(server.URL)
+		_, err := client.GasPrice(context.Background())
+
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "unexpected result type")
+	})
+}
+
+func TestEstimateGas(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var req JSONRPCRequest
+			json.NewDecoder(r.Body).Decode(&req)
+
+			assert.Equal(t, "eth_estimateGas", req.Method)
+			assert.Len(t, req.Params, 1)
+
+			w.Header().Set("Content-Type", "application/json")
+			resp := NewJSONRPCResponse(req.ID, "0x5208")
+			json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		client := New(server.URL)
+		gas, err := client.EstimateGas(context.Background(), map[string]any{
+			"from": "0x1234567890123456789012345678901234567890",
+			"to":   "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+		})
+
+		assert.NoError(t, err)
+		assert.Equal(t, uint64(21000), gas)
+	})
+
+	t.Run("invalid result type", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var req JSONRPCRequest
+			json.NewDecoder(r.Body).Decode(&req)
+
+			w.Header().Set("Content-Type", "application/json")
+			resp := NewJSONRPCResponse(req.ID, 21000)
+			json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		client := New(server.URL)
+		_, err := client.EstimateGas(context.Background(), map[string]any{"from": "0xabcd"})
+
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "unexpected result type")
+	})
+}
+
+func TestGetTransactionReceipt(t *testing.T) {
+	t.Run("receipt found", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var req JSONRPCRequest
+			json.NewDecoder(r.Body).Decode(&req)
+
+			assert.Equal(t, "eth_getTransactionReceipt", req.Method)
+
+			w.Header().Set("Content-Type", "application/json")
+			resp := NewJSONRPCResponse(req.ID, map[string]interface{}{
+				"transactionHash": "0xabc123",
+				"status":          "0x1",
+			})
+			json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		client := New(server.URL)
+		receipt, err := client.GetTransactionReceipt(context.Background(), "0xabc123")
+
+		assert.NoError(t, err)
+		assert.Equal(t, "0xabc123", receipt["transactionHash"])
+	})
+
+	t.Run("receipt pending", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var req JSONRPCRequest
+			json.NewDecoder(r.Body).Decode(&req)
+
+			w.Header().Set("Content-Type", "application/json")
+			resp := NewJSONRPCResponse(req.ID, nil)
+			json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		client := New(server.URL)
+		receipt, err := client.GetTransactionReceipt(context.Background(), "0xpending")
+
+		assert.NoError(t, err)
+		assert.Nil(t, receipt)
+	})
+
+	t.Run("invalid result type", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var req JSONRPCRequest
+			json.NewDecoder(r.Body).Decode(&req)
+
+			w.Header().Set("Content-Type", "application/json")
+			resp := NewJSONRPCResponse(req.ID, "not-a-receipt")
+			json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		client := New(server.URL)
+		_, err := client.GetTransactionReceipt(context.Background(), "0xabc123")
+
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "unexpected result type")
+	})
+}
+
+func TestWaitForReceipt(t *testing.T) {
+	t.Run("waits until receipt appears", func(t *testing.T) {
+		var calls int
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			calls++
+			var req JSONRPCRequest
+			json.NewDecoder(r.Body).Decode(&req)
+
+			w.Header().Set("Content-Type", "application/json")
+			if calls == 1 {
+				resp := NewJSONRPCResponse(req.ID, nil)
+				json.NewEncoder(w).Encode(resp)
+				return
+			}
+			resp := NewJSONRPCResponse(req.ID, map[string]interface{}{
+				"transactionHash": "0xready",
+				"status":          "0x1",
+			})
+			json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		client := New(server.URL)
+		receipt, err := client.WaitForReceipt(context.Background(), "0xready", time.Millisecond)
+
+		assert.NoError(t, err)
+		assert.Equal(t, "0xready", receipt["transactionHash"])
+		assert.GreaterOrEqual(t, calls, 2)
+	})
+
+	t.Run("context timeout", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var req JSONRPCRequest
+			json.NewDecoder(r.Body).Decode(&req)
+
+			w.Header().Set("Content-Type", "application/json")
+			resp := NewJSONRPCResponse(req.ID, nil)
+			json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		client := New(server.URL)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
+		defer cancel()
+
+		_, err := client.WaitForReceipt(ctx, "0xpending", time.Millisecond)
+
+		assert.ErrorIs(t, err, context.DeadlineExceeded)
 	})
 }
 
