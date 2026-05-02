@@ -19,6 +19,6 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
-      - uses: tempoxyz/changelogs@add-go-ecosystem
+      - uses: tempoxyz/changelogs@master
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

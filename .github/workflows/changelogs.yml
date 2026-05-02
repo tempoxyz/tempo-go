@@ -17,10 +17,11 @@ jobs:
         with:
           fetch-depth: 0
 
-      # NOTE: `ai: 'amp -x'` and the `AMP_API_KEY` env are intentionally omitted
-      # for now. The check action's AI path runs `curl -sSL https://changelogs.sh | sh`,
-      # which installs the upstream `wevm/changelogs-rs` binary — that binary does
-      # not yet ship Go ecosystem support (added in tempoxyz/changelogs#109).
-      # Re-enable AI suggestions in the same follow-up that repins this workflow
-      # to `tempoxyz/changelogs/check@master` once a Go-aware binary is published.
-      - uses: tempoxyz/changelogs/check@add-go-ecosystem
+      # NOTE: `ai: 'amp -x'` and the `AMP_API_KEY` env are still intentionally
+      # omitted. The check action's AI path runs
+      # `curl -sSL https://changelogs.sh | sh`, which installs the upstream
+      # `wevm/changelogs-rs` binary — that binary does not yet ship Go
+      # ecosystem support, so the AI generation step would error out with
+      # `could not detect workspace`. Re-enable AI suggestions once a
+      # Go-aware binary is published to `wevm/changelogs-rs/releases`.
+      - uses: tempoxyz/changelogs/check@master
