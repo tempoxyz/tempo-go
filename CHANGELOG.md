@@ -1,5 +1,11 @@
 # Changelog
 
+## `github.com/tempoxyz/tempo-go@0.4.1`
+
+### Patch Changes
+
+- Reject non-canonical secp256k1 signatures during transaction deserialization and address recovery, preventing transaction hash malleability via legacy `V` values and high-S signatures. (by @BrendanRyan, [#49](https://github.com/tempoxyz/tempo-go/pull/49))
+
 All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
