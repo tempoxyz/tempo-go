@@ -85,6 +85,8 @@ func (s *Signer) SignData(data []byte) (*Signature, error) {
 // Scalars must fit within 32 bytes (256 bits) to be valid signature components.
 const maxScalarBytes = 32
 
+var secp256k1HalfN = new(big.Int).Rsh(new(big.Int).Set(crypto.S256().Params().N), 1)
+
 // RecoverAddress recovers the address that signed the given hash with the given signature.
 func RecoverAddress(hash common.Hash, sig *Signature) (common.Address, error) {
 	if sig == nil {
@@ -101,6 +103,12 @@ func RecoverAddress(hash common.Hash, sig *Signature) (common.Address, error) {
 	sBytes := sig.S.Bytes()
 	if len(sBytes) > maxScalarBytes {
 		return common.Address{}, fmt.Errorf("%w: S exceeds %d bytes (got %d)", ErrInvalidSignature, maxScalarBytes, len(sBytes))
+	}
+	if sig.S.Cmp(secp256k1HalfN) > 0 {
+		return common.Address{}, fmt.Errorf("%w: S value is not Low-S (EIP-2)", ErrInvalidSignature)
+	}
+	if !crypto.ValidateSignatureValues(sig.YParity, sig.R, sig.S, true) {
+		return common.Address{}, fmt.Errorf("%w: invalid signature values", ErrInvalidSignature)
 	}
 
 	sigBytes := make([]byte, 65)

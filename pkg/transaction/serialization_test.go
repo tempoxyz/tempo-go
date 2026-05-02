@@ -374,6 +374,22 @@ func TestDecodeSignature(t *testing.T) {
 			want:    signer.NewSignature(max32Bytes, max32Bytes, 0),
 		},
 		{
+			name:       "legacy yParity 27 rejected",
+			r:          big.NewInt(12345).Bytes(),
+			s:          big.NewInt(67890).Bytes(),
+			yParity:    27,
+			wantErr:    true,
+			wantErrStr: "invalid yParity",
+		},
+		{
+			name:       "legacy yParity 28 rejected",
+			r:          big.NewInt(12345).Bytes(),
+			s:          big.NewInt(67890).Bytes(),
+			yParity:    28,
+			wantErr:    true,
+			wantErrStr: "invalid yParity",
+		},
+		{
 			name:       "oversized R (33 bytes)",
 			r:          big33Bytes.Bytes(),
 			s:          big.NewInt(1).Bytes(),
@@ -417,6 +433,41 @@ func TestDecodeSignature(t *testing.T) {
 			assert.Equal(t, tt.want.YParity, got.YParity)
 			assert.Equal(t, 0, got.R.Cmp(tt.want.R))
 			assert.Equal(t, 0, got.S.Cmp(tt.want.S))
+		})
+	}
+}
+
+func TestDecodeSignature_MultiByteYParityRejected(t *testing.T) {
+	input := []interface{}{
+		[]byte{0x00, 0x01},
+		big.NewInt(12345).Bytes(),
+		big.NewInt(67890).Bytes(),
+	}
+
+	got, err := decodeSignature(input)
+	assert.Error(t, err)
+	assert.Nil(t, got)
+	assert.Contains(t, err.Error(), "expected single byte")
+}
+
+func TestDecodeSignatureEnvelope_RejectsLegacyYParity(t *testing.T) {
+	tests := []struct {
+		name    string
+		yParity byte
+	}{
+		{name: "legacy_27", yParity: 27},
+		{name: "legacy_28", yParity: 28},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			envelope, _, _ := makeSecp256k1Envelope()
+			envelope[64] = tt.yParity
+
+			decoded, err := decodeSignatureEnvelope(envelope)
+			assert.Error(t, err)
+			assert.Nil(t, decoded)
+			assert.Contains(t, err.Error(), "invalid yParity in signature envelope")
 		})
 	}
 }

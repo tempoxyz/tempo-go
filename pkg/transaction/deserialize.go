@@ -334,6 +334,22 @@ func decodeAccessList(accessListRaw []interface{}) (AccessList, error) {
 // Valid signature components must fit within 32 bytes (256 bits).
 const maxSignatureScalarBytes = 32
 
+func decodeYParity(yParityBytes []byte, context string) (uint8, error) {
+	if len(yParityBytes) == 0 {
+		return 0, nil
+	}
+	if len(yParityBytes) != 1 {
+		return 0, fmt.Errorf("invalid %s: expected single byte, got %d bytes", context, len(yParityBytes))
+	}
+
+	yParity := yParityBytes[0]
+	if yParity > 1 {
+		return 0, fmt.Errorf("invalid %s: must be 0 or 1, got %d", context, yParity)
+	}
+
+	return yParity, nil
+}
+
 // decodeSignature decodes a signature tuple [yParity, r, s].
 func decodeSignature(sigTuple []interface{}) (*signer.Signature, error) {
 	if len(sigTuple) != 3 {
@@ -345,16 +361,9 @@ func decodeSignature(sigTuple []interface{}) (*signer.Signature, error) {
 	if !ok {
 		return nil, fmt.Errorf("yParity is not bytes")
 	}
-	var yParity uint8
-	if len(yParityBytes) > 0 {
-		yParity = yParityBytes[0]
-		// Convert legacy V value (27/28) to yParity (0/1) if needed
-		if yParity >= 27 {
-			yParity -= 27
-		}
-	}
-	if yParity > 1 {
-		return nil, fmt.Errorf("invalid yParity: must be 0 or 1, got %d", yParity)
+	yParity, err := decodeYParity(yParityBytes, "yParity")
+	if err != nil {
+		return nil, err
 	}
 
 	// Field 1: r
@@ -398,14 +407,9 @@ func decodeSignatureEnvelope(envelopeBytes []byte) (*signer.SignatureEnvelope, e
 	if len(envelopeBytes) == 65 {
 		r := new(big.Int).SetBytes(envelopeBytes[0:32])
 		s := new(big.Int).SetBytes(envelopeBytes[32:64])
-		yParity := uint8(envelopeBytes[64])
-
-		// Convert legacy V value (27/28) to yParity (0/1) if needed
-		if yParity >= 27 {
-			yParity -= 27
-		}
-		if yParity > 1 {
-			return nil, fmt.Errorf("invalid yParity in signature envelope: must be 0 or 1, got %d", yParity)
+		yParity, err := decodeYParity([]byte{envelopeBytes[64]}, "yParity in signature envelope")
+		if err != nil {
+			return nil, err
 		}
 
 		return &signer.SignatureEnvelope{

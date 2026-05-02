@@ -120,6 +120,7 @@ func TestRecoverAddress(t *testing.T) {
 
 func TestRecoverAddress_InvalidSignatures(t *testing.T) {
 	big33Bytes := new(big.Int).Lsh(big.NewInt(1), 256) // 2^256 requires 33 bytes
+	highS := new(big.Int).Add(new(big.Int).Set(secp256k1HalfN), big.NewInt(1))
 
 	tests := []struct {
 		name       string
@@ -168,6 +169,18 @@ func TestRecoverAddress_InvalidSignatures(t *testing.T) {
 			sig:        &Signature{R: big33Bytes, S: big33Bytes, YParity: 0},
 			wantErr:    true,
 			wantErrStr: "R exceeds",
+		},
+		{
+			name:       "high-S signature",
+			sig:        &Signature{R: big.NewInt(1), S: highS, YParity: 0},
+			wantErr:    true,
+			wantErrStr: "Low-S",
+		},
+		{
+			name:       "invalid yParity",
+			sig:        &Signature{R: big.NewInt(1), S: big.NewInt(1), YParity: 2},
+			wantErr:    true,
+			wantErrStr: "invalid signature values",
 		},
 	}
 

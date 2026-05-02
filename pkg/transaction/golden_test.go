@@ -13,7 +13,7 @@ import (
 // This was copied over from the tempo.ts repo
 func TestTempoGoldenFormat(t *testing.T) {
 	// Format: 0x76 + RLP + senderAddress + "feefeefeefee"
-	clientTx := "0x76f87582a5bd808502cb417800825dc2dcdb9400000000000000000000000000000000000000008084deadbeefc0800b80808000c0b8417607a2e7bea757dc38093db971a7ec7537a690a698119d629b2eb6bb433315767a20aeb717b10285986bc22f0cbb7e9254a2a1f35d5c29ad5119e8b46e202ec41cd47b37BBC34fa57e9a67Ae7d0a1496edC88f04Bbfeefeefeefee"
+	clientTx := "0x76f87582a5bd808502cb417800825dc2dcdb9400000000000000000000000000000000000000008084deadbeefc0800b80808000c0b8417607a2e7bea757dc38093db971a7ec7537a690a698119d629b2eb6bb433315767a20aeb717b10285986bc22f0cbb7e9254a2a1f35d5c29ad5119e8b46e202ec401d47b37BBC34fa57e9a67Ae7d0a1496edC88f04Bbfeefeefeefee"
 
 	t.Run("Deserialize tempo.ts transaction", func(t *testing.T) {
 		tx, err := Deserialize(clientTx)
