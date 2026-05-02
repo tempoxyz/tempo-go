@@ -155,4 +155,7 @@ jobs:
       run: go test -v -run TestIntegration -timeout=10m ./tests
       env:
         TEMPO_RPC_URL: ${{ secrets.TEMPO_TESTNET_RPC_URL }}
-        TEMPO_HARDFORK: T2
+        # Testnet (moderato) hard-forked T2 → T3 on ~2026-04-21. The default
+        # value of TEMPO_HARDFORK in the test harness is "T3", so it's elided
+        # here. If a future testnet downgrade or pre-T3 environment is needed,
+        # re-add `TEMPO_HARDFORK: T2`.
