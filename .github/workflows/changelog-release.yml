@@ -11,9 +11,13 @@ jobs:
       contents: write
       pull-requests: write
     steps:
+      # fetch-depth: 0 + fetch-tags: true so the Go ecosystem can read prior
+      # vX.Y.Z tags when computing the next version, and so the action can diff
+      # CHANGELOG.md.
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          fetch-tags: true
 
       - uses: tempoxyz/changelogs@add-go-ecosystem
         env:
