@@ -4,10 +4,6 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-### Security
-
-- Reject non-canonical secp256k1 signatures during transaction deserialization and address recovery, preventing transaction hash malleability via legacy `V` values and high-S signatures
-
 ## [0.4.0] - 2026-04-10
 
 ### Added
