@@ -1,0 +1,26 @@
+# Ecosystem: "rust" | "python" | "go" (auto-detected if not specified)
+# ecosystem = "rust"
+
+# How to bump packages that depend on changed packages
+# "patch" | "minor" | "none"
+dependent_bump = "patch"
+
+# Packages to ignore
+ignore = []
+
+# Fixed groups: all packages always share the same version
+# [[fixed]]
+# members = ["package-a", "package-b"]
+
+# Linked groups: versions sync when released together
+# [[linked]]
+# members = ["sdk-core", "sdk-macros"]
+
+[changelog]
+# "per-crate" - CHANGELOG.md in each package
+# "root" - Single CHANGELOG.md at workspace root
+format = "per-crate"
+
+# AI-assisted changelog generation
+# [ai]
+# command = "amp ask"  # or "gh copilot suggest -t shell"

@@ -1,0 +1,22 @@
+name: Changelogs
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  changelogs:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: npm install -g @sourcegraph/amp
+
+      - uses: tempoxyz/changelogs/check@add-go-ecosystem
+        with:
+          ai: 'amp -x'
+        env:
+          AMP_API_KEY: ${{ secrets.AMP_API_KEY }}
