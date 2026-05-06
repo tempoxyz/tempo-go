@@ -343,6 +343,14 @@ func decodeYParity(yParityBytes []byte, context string) (uint8, error) {
 	}
 
 	yParity := yParityBytes[0]
+	// EIP-2098 normalization: legacy Ethereum signers (raw secp256k1, viem
+	// serializeSignature, ecdsa libraries targeting the pre-EIP-155 recovery-id
+	// convention) emit yParity ∈ {27, 28}. EIP-2098 / EIP-1559 normalize to
+	// {0, 1} by subtracting 27. Accept either form on deserialize so clients
+	// don't have to wrap their signers; serialize.go remains strict.
+	if yParity == 27 || yParity == 28 {
+		yParity -= 27
+	}
 	if yParity > 1 {
 		return 0, fmt.Errorf("invalid %s: must be 0 or 1, got %d", context, yParity)
 	}

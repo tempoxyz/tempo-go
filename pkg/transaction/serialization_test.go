@@ -374,20 +374,18 @@ func TestDecodeSignature(t *testing.T) {
 			want:    signer.NewSignature(max32Bytes, max32Bytes, 0),
 		},
 		{
-			name:       "legacy yParity 27 rejected",
-			r:          big.NewInt(12345).Bytes(),
-			s:          big.NewInt(67890).Bytes(),
-			yParity:    27,
-			wantErr:    true,
-			wantErrStr: "invalid yParity",
+			name:    "legacy yParity 27 normalized to 0 (EIP-2098)",
+			r:       big.NewInt(12345).Bytes(),
+			s:       big.NewInt(67890).Bytes(),
+			yParity: 27,
+			want:    signer.NewSignature(big.NewInt(12345), big.NewInt(67890), 0),
 		},
 		{
-			name:       "legacy yParity 28 rejected",
-			r:          big.NewInt(12345).Bytes(),
-			s:          big.NewInt(67890).Bytes(),
-			yParity:    28,
-			wantErr:    true,
-			wantErrStr: "invalid yParity",
+			name:    "legacy yParity 28 normalized to 1 (EIP-2098)",
+			r:       big.NewInt(12345).Bytes(),
+			s:       big.NewInt(67890).Bytes(),
+			yParity: 28,
+			want:    signer.NewSignature(big.NewInt(12345), big.NewInt(67890), 1),
 		},
 		{
 			name:       "oversized R (33 bytes)",
@@ -450,13 +448,14 @@ func TestDecodeSignature_MultiByteYParityRejected(t *testing.T) {
 	assert.Contains(t, err.Error(), "expected single byte")
 }
 
-func TestDecodeSignatureEnvelope_RejectsLegacyYParity(t *testing.T) {
+func TestDecodeSignatureEnvelope_NormalizesLegacyYParity(t *testing.T) {
 	tests := []struct {
 		name    string
 		yParity byte
+		want    uint8
 	}{
-		{name: "legacy_27", yParity: 27},
-		{name: "legacy_28", yParity: 28},
+		{name: "legacy_27_to_0", yParity: 27, want: 0},
+		{name: "legacy_28_to_1", yParity: 28, want: 1},
 	}
 
 	for _, tt := range tests {
@@ -465,9 +464,9 @@ func TestDecodeSignatureEnvelope_RejectsLegacyYParity(t *testing.T) {
 			envelope[64] = tt.yParity
 
 			decoded, err := decodeSignatureEnvelope(envelope)
-			assert.Error(t, err)
-			assert.Nil(t, decoded)
-			assert.Contains(t, err.Error(), "invalid yParity in signature envelope")
+			assert.NoError(t, err)
+			assert.NotNil(t, decoded)
+			assert.Equal(t, tt.want, decoded.Signature.YParity)
 		})
 	}
 }
