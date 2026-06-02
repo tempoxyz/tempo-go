@@ -4,6 +4,9 @@
 // enabling Root Keys (e.g., passkeys) to provision scoped "secondary" Access Keys
 // with expiry timestamps, per-TIP20 token spending limits, and call scope
 // restrictions (per-contract, per-selector, and per-recipient filtering).
+// T5 adds TIP-1053 witness APIs for authorizing keys with a bytes32 witness,
+// burning key-authorization witnesses, and checking whether a witness has been
+// burned for an account.
 //
 // # Keychain V2 Signature Format
 //
@@ -55,6 +58,9 @@
 // The precompile is located at address 0xAAAAAAAA00000000000000000000000000000000.
 // It provides functions for:
 //   - authorizeKey: Authorize a new access key with restrictions
+//   - authorizeKey with witness: Authorize a new access key with a TIP-1053 witness
+//   - burnKeyAuthorizationWitness: Burn a TIP-1053 witness without authorizing a key
+//   - isKeyAuthorizationWitnessBurned: Query burned witness state
 //   - revokeKey: Revoke an access key
 //   - updateSpendingLimit: Update spending limit for a token
 //   - setAllowedCalls: Set or replace call scope restrictions for a key

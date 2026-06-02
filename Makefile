@@ -16,11 +16,11 @@ clean:
 
 # Run unit tests only (excludes integration tests)
 test:
-	go test -race ./pkg/transaction ./pkg/signer ./pkg/client
+	go test -race ./pkg/...
 
 # Run unit tests with coverage
 test-coverage:
-	go test -race -coverprofile=coverage.out ./pkg/transaction ./pkg/signer ./pkg/client
+	go test -race -coverprofile=coverage.out ./pkg/...
 	go tool cover -html=coverage.out -o cover.html
 
 # Run checks as well as unit tests
@@ -28,7 +28,7 @@ check:
 	go mod verify
 	test -z "$$(gofmt -l .)" || (echo "Code needs formatting. Run 'make fix'" && gofmt -l . && exit 1)
 	go vet ./...
-	go test -race ./pkg/transaction ./pkg/signer ./pkg/client
+	go test -race ./pkg/...
 
 # Formats code and tidies dependencies
 fix:

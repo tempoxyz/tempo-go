@@ -75,6 +75,15 @@ func isT2() bool {
 	return hardfork == "T2"
 }
 
+func isT5OrLater() bool {
+	switch hardfork {
+	case "T5", "T6":
+		return true
+	default:
+		return false
+	}
+}
+
 // testContext encapsulates common test dependencies and helpers
 type testContext struct {
 	t        *testing.T
@@ -145,6 +154,10 @@ func (tc *testContext) waitForBalance(address common.Address) {
 
 // devKeyPrivate is the well-known dev account private key used for local devnet funding.
 const devKeyPrivate = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+
+// farFutureKeyExpiry is valid whether a live node reports timestamps in
+// seconds or milliseconds.
+const farFutureKeyExpiry = int64(1<<63 - 1)
 
 // erc20TransferSelector is the function selector for transfer(address,uint256).
 var erc20TransferSelector = mustDecodeHex("a9059cbb")
@@ -698,7 +711,7 @@ func TestIntegration_AccessKeys(t *testing.T) {
 	t.Logf("Access key: %s", accessKey.Address().Hex())
 
 	t.Run("AuthorizeAccessKey", func(t *testing.T) {
-		calldata := buildAuthorizeKeyCalldata(accessKey.Address(), 1893456000, false)
+		calldata := buildAuthorizeKeyCalldata(accessKey.Address(), farFutureKeyExpiry, false)
 
 		eip1559Tx := types.NewTx(&types.DynamicFeeTx{
 			ChainID:   big.NewInt(tc.chainID),
@@ -793,6 +806,20 @@ func parseKeyInfoIsRevoked(resultBytes []byte) bool {
 	return false
 }
 
+// parseABIEncodedBool extracts a Solidity bool return value.
+func parseABIEncodedBool(t *testing.T, result string) bool {
+	t.Helper()
+	resultBytes, err := hex.DecodeString(strings.TrimPrefix(result, "0x"))
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(resultBytes), 32, "bool result too short")
+	for _, b := range resultBytes[len(resultBytes)-32:] {
+		if b != 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // TestIntegration_KeychainSelectors tests that keychain selectors work against the precompile
 func TestIntegration_KeychainSelectors(t *testing.T) {
 	tc := newTestContext(t)
@@ -802,8 +829,7 @@ func TestIntegration_KeychainSelectors(t *testing.T) {
 	require.NoError(t, err)
 	accessKey := signer.NewSignerFromKey(accessKeyPriv)
 
-	// Use a far-future expiry (10 years from now)
-	expiry := time.Now().Add(10 * 365 * 24 * time.Hour).Unix()
+	expiry := farFutureKeyExpiry
 
 	t.Logf("Root account: %s", rootAccount.Address().Hex())
 	t.Logf("Access key: %s", accessKey.Address().Hex())
@@ -863,6 +889,81 @@ func TestIntegration_KeychainSelectors(t *testing.T) {
 	})
 }
 
+// TestIntegration_T5KeyAuthorizationWitness tests TIP-1053 witness APIs.
+func TestIntegration_T5KeyAuthorizationWitness(t *testing.T) {
+	if !isT5OrLater() {
+		t.Skip("requires TEMPO_HARDFORK=T5 or later and a T5-capable RPC")
+	}
+
+	tc := newTestContext(t)
+
+	rootAccount := tc.createAndFundSigner()
+	accessKeyPriv, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	accessKey := signer.NewSignerFromKey(accessKeyPriv)
+
+	burnWitness := crypto.Keccak256Hash([]byte("tempo-go integration burn witness"), rootAccount.Address().Bytes())
+	authWitness := crypto.Keccak256Hash([]byte("tempo-go integration auth witness"), rootAccount.Address().Bytes(), accessKey.Address().Bytes())
+
+	t.Logf("Root account: %s", rootAccount.Address().Hex())
+	t.Logf("Access key: %s", accessKey.Address().Hex())
+
+	sendKeychainCall := func(t *testing.T, call keychain.Call, msg string) {
+		t.Helper()
+		tx := tc.newTxBuilder().
+			SetNonce(tc.getNonce(rootAccount.Address())).
+			SetGas(600000).
+			AddCall(call.To, big.NewInt(0), call.Data).
+			Build()
+
+		err := transaction.SignTransaction(tx, rootAccount)
+		require.NoError(t, err)
+
+		tc.sendTxExpectSuccess(tx, msg)
+	}
+
+	isWitnessBurned := func(t *testing.T, witness common.Hash) bool {
+		t.Helper()
+		call, err := keychain.IsKeyAuthorizationWitnessBurned(rootAccount.Address(), witness)
+		require.NoError(t, err)
+
+		resp, err := tc.client.SendRequest(tc.ctx, "eth_call", map[string]interface{}{
+			"to":   call.To.Hex(),
+			"data": "0x" + hex.EncodeToString(call.Data),
+		}, "latest")
+		require.NoError(t, err)
+		require.Nil(t, resp.Error, "isKeyAuthorizationWitnessBurned eth_call failed: %v", resp.Error)
+
+		result, ok := resp.Result.(string)
+		require.True(t, ok, "expected string result")
+		return parseABIEncodedBool(t, result)
+	}
+
+	t.Run("BurnWitness", func(t *testing.T) {
+		call, err := keychain.BurnKeyAuthorizationWitness(burnWitness)
+		require.NoError(t, err)
+
+		sendKeychainCall(t, call, "burnKeyAuthorizationWitness failed")
+	})
+
+	t.Run("ReadBurnedWitnessState", func(t *testing.T) {
+		assert.True(t, isWitnessBurned(t, burnWitness), "expected burned witness to be marked burned")
+		assert.False(t, isWitnessBurned(t, authWitness), "expected unused witness to remain unburned")
+	})
+
+	t.Run("AuthorizeWithWitness", func(t *testing.T) {
+		restrictions := keychain.NewKeyRestrictions(^uint64(0))
+		call, err := keychain.AuthorizeKeyWithWitness(accessKey.Address(), keychain.SignatureTypeSecp256k1, restrictions, authWitness)
+		require.NoError(t, err)
+
+		sendKeychainCall(t, call, "authorizeKey with witness failed")
+
+		resultBytes := tc.callGetKey(rootAccount.Address(), accessKey.Address())
+		recoveredKeyId := parseKeyInfoKeyId(resultBytes)
+		assert.Equal(t, accessKey.Address(), recoveredKeyId, "getKey returned wrong keyId")
+	})
+}
+
 // TestIntegration_KeychainWithLimits tests authorizeKey with enforceLimits=true and a non-empty TokenLimit[]
 func TestIntegration_KeychainWithLimits(t *testing.T) {
 	tc := newTestContext(t)
@@ -872,7 +973,7 @@ func TestIntegration_KeychainWithLimits(t *testing.T) {
 	require.NoError(t, err)
 	accessKey := signer.NewSignerFromKey(accessKeyPriv)
 
-	expiry := time.Now().Add(10 * 365 * 24 * time.Hour).Unix()
+	expiry := farFutureKeyExpiry
 	limitAmount := new(big.Int).Mul(big.NewInt(1000), big.NewInt(1e18)) // 1000 tokens
 
 	t.Logf("Root account: %s", rootAccount.Address().Hex())

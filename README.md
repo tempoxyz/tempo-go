@@ -172,7 +172,7 @@ client.SendRawTransaction(context.Background(), serialized)
 | `transaction` | TempoTransaction encoding, signing, and validation | [GoDoc](https://pkg.go.dev/github.com/tempoxyz/tempo-go/pkg/transaction) |
 | `client`      | RPC client for interacting with Tempo nodes        | [GoDoc](https://pkg.go.dev/github.com/tempoxyz/tempo-go/pkg/client)      |
 | `signer`      | Key management and signature generation            | [GoDoc](https://pkg.go.dev/github.com/tempoxyz/tempo-go/pkg/signer)      |
-| `keychain`    | Keychain-based transaction signing                 | [GoDoc](https://pkg.go.dev/github.com/tempoxyz/tempo-go/pkg/keychain)    |
+| `keychain`    | Keychain-based transaction signing and witness APIs | [GoDoc](https://pkg.go.dev/github.com/tempoxyz/tempo-go/pkg/keychain)    |
 
 ## Testing
 
@@ -202,6 +202,9 @@ docker-compose up -d
 
 # Run integration tests
 make integration
+
+# Run T5 witness integration tests against a T5-capable RPC
+TEMPO_HARDFORK=T5 TEMPO_RPC_URL=<url> make integration
 
 # Stop node
 docker-compose down

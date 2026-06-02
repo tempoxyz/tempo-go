@@ -33,6 +33,21 @@ func EncodeGetRemainingLimitCalldata(accountAddress, keyID, tokenAddress common.
 	return GetRemainingLimitSelector + accountPadded + keyPadded + tokenPadded
 }
 
+// EncodeIsKeyAuthorizationWitnessBurnedCalldata encodes the calldata for
+// isKeyAuthorizationWitnessBurned(address,bytes32).
+//
+// Parameters:
+//   - accountAddress: The account address
+//   - witness: The TIP-1053 key authorization witness
+//
+// Returns the hex-encoded calldata (with 0x prefix).
+func EncodeIsKeyAuthorizationWitnessBurnedCalldata(accountAddress common.Address, witness common.Hash) string {
+	accountPadded := padAddress(accountAddress)
+	witnessPadded := strings.ToLower(hex.EncodeToString(witness.Bytes()))
+
+	return IsKeyAuthorizationWitnessBurnedSelector + accountPadded + witnessPadded
+}
+
 // padAddress pads an address to 32 bytes (64 hex chars) for ABI encoding.
 func padAddress(addr common.Address) string {
 	return strings.Repeat("0", 24) + strings.ToLower(hex.EncodeToString(addr.Bytes()))

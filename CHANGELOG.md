@@ -10,6 +10,19 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- T5 AccountKeychain TIP-1053 witness bindings: `AuthorizeKeyWithWitness()`, `BurnKeyAuthorizationWitness()`, `IsKeyAuthorizationWitnessBurned()`, and matching selector constants
+- T5 integration coverage for key-authorization witness burn, read, and authorize flows gated by `TEMPO_HARDFORK=T5`
+
+### Changed
+
+- `make test`, `make check`, and `make test-coverage` now run all `./pkg/...` unit tests, including `pkg/keychain`
+
+### Follow-up
+
+- TIP20Factory `createToken(string,string,string,address,address,bytes32,string)` exists upstream, but `tempo-go` does not currently expose factory bindings to extend in this change
+
 ## [0.4.0] - 2026-04-10
 
 ### Added

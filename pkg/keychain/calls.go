@@ -17,6 +17,18 @@ const SetAllowedCallsSelector = "0xf5456703"
 // removeAllowedCalls(address,address).
 const RemoveAllowedCallsSelector = "0xf3941811"
 
+// AuthorizeKeyWithWitnessSelector is the function selector for the T5
+// authorizeKey(address,uint8,KeyRestrictions,bytes32) overload.
+const AuthorizeKeyWithWitnessSelector = "0xe3c154d2"
+
+// BurnKeyAuthorizationWitnessSelector is the function selector for
+// burnKeyAuthorizationWitness(bytes32).
+const BurnKeyAuthorizationWitnessSelector = "0xcff31c46"
+
+// IsKeyAuthorizationWitnessBurnedSelector is the function selector for
+// isKeyAuthorizationWitnessBurned(address,bytes32).
+const IsKeyAuthorizationWitnessBurnedSelector = "0x8e6c7e11"
+
 // SignatureType constants matching the Rust/Solidity enum.
 const (
 	SignatureTypeSecp256k1 = 0
@@ -84,11 +96,20 @@ var keychainAddress = common.HexToAddress(AccountKeychainAddress)
 // authorizeKeyABI is the parsed ABI for authorizeKey(address,uint8,KeyRestrictions).
 var authorizeKeyABI abi.ABI
 
+// authorizeKeyWithWitnessABI is the parsed ABI for authorizeKey(address,uint8,KeyRestrictions,bytes32).
+var authorizeKeyWithWitnessABI abi.ABI
+
 // setAllowedCallsABI is the parsed ABI for setAllowedCalls(address,CallScope[]).
 var setAllowedCallsABI abi.ABI
 
 // removeAllowedCallsABI is the parsed ABI for removeAllowedCalls(address,address).
 var removeAllowedCallsABI abi.ABI
+
+// burnKeyAuthorizationWitnessABI is the parsed ABI for burnKeyAuthorizationWitness(bytes32).
+var burnKeyAuthorizationWitnessABI abi.ABI
+
+// isKeyAuthorizationWitnessBurnedABI is the parsed ABI for isKeyAuthorizationWitnessBurned(address,bytes32).
+var isKeyAuthorizationWitnessBurnedABI abi.ABI
 
 // revokeKeyABI is the parsed ABI for revokeKey(address).
 var revokeKeyABI abi.ABI
@@ -131,6 +152,33 @@ func init() {
 		]
 	}]`)
 
+	authorizeKeyWithWitnessABI = mustParseABI(`[{
+		"name": "authorizeKey",
+		"type": "function",
+		"inputs": [
+			{"name": "keyId", "type": "address"},
+			{"name": "signatureType", "type": "uint8"},
+			{"name": "restrictions", "type": "tuple", "components": [
+				{"name": "expiry", "type": "uint64"},
+				{"name": "enforceLimits", "type": "bool"},
+				{"name": "limits", "type": "tuple[]", "components": [
+					{"name": "token", "type": "address"},
+					{"name": "amount", "type": "uint256"},
+					{"name": "period", "type": "uint64"}
+				]},
+				{"name": "allowAnyCalls", "type": "bool"},
+				{"name": "allowedCalls", "type": "tuple[]", "components": [
+					{"name": "target", "type": "address"},
+					{"name": "selectorRules", "type": "tuple[]", "components": [
+						{"name": "selector", "type": "bytes4"},
+						{"name": "recipients", "type": "address[]"}
+					]}
+				]}
+			]},
+			{"name": "witness", "type": "bytes32"}
+		]
+	}]`)
+
 	setAllowedCallsABI = mustParseABI(`[{
 		"name": "setAllowedCalls",
 		"type": "function",
@@ -155,6 +203,23 @@ func init() {
 		]
 	}]`)
 
+	burnKeyAuthorizationWitnessABI = mustParseABI(`[{
+		"name": "burnKeyAuthorizationWitness",
+		"type": "function",
+		"inputs": [
+			{"name": "witness", "type": "bytes32"}
+		]
+	}]`)
+
+	isKeyAuthorizationWitnessBurnedABI = mustParseABI(`[{
+		"name": "isKeyAuthorizationWitnessBurned",
+		"type": "function",
+		"inputs": [
+			{"name": "account", "type": "address"},
+			{"name": "witness", "type": "bytes32"}
+		]
+	}]`)
+
 	revokeKeyABI = mustParseABI(`[{
 		"name": "revokeKey",
 		"type": "function",
@@ -174,13 +239,12 @@ func init() {
 	}]`)
 }
 
-// AuthorizeKey builds an authorizeKey(address,uint8,KeyRestrictions) call.
-func AuthorizeKey(keyID common.Address, signatureType uint8, restrictions *KeyRestrictions) (Call, error) {
+func toABIKeyRestrictions(restrictions *KeyRestrictions) (abiKeyRestrictions, error) {
 	if restrictions == nil {
-		return Call{}, fmt.Errorf("restrictions must not be nil")
+		return abiKeyRestrictions{}, fmt.Errorf("restrictions must not be nil")
 	}
 	if err := restrictions.Validate(); err != nil {
-		return Call{}, fmt.Errorf("invalid restrictions: %w", err)
+		return abiKeyRestrictions{}, fmt.Errorf("invalid restrictions: %w", err)
 	}
 
 	limits := make([]abiTokenLimit, len(restrictions.limits))
@@ -192,17 +256,57 @@ func AuthorizeKey(keyID common.Address, signatureType uint8, restrictions *KeyRe
 		}
 	}
 
-	r := abiKeyRestrictions{
+	return abiKeyRestrictions{
 		Expiry:        restrictions.expiry,
 		EnforceLimits: restrictions.enforceLimits,
 		Limits:        limits,
 		AllowAnyCalls: restrictions.allowAnyCalls,
 		AllowedCalls:  toABICallScopes(restrictions.allowedCalls),
+	}, nil
+}
+
+// AuthorizeKey builds an authorizeKey(address,uint8,KeyRestrictions) call.
+func AuthorizeKey(keyID common.Address, signatureType uint8, restrictions *KeyRestrictions) (Call, error) {
+	r, err := toABIKeyRestrictions(restrictions)
+	if err != nil {
+		return Call{}, err
 	}
 
 	data, err := authorizeKeyABI.Pack("authorizeKey", keyID, signatureType, r)
 	if err != nil {
 		return Call{}, fmt.Errorf("failed to encode authorizeKey: %w", err)
+	}
+	return Call{To: keychainAddress, Data: data}, nil
+}
+
+// AuthorizeKeyWithWitness builds an authorizeKey(address,uint8,KeyRestrictions,bytes32) call.
+func AuthorizeKeyWithWitness(keyID common.Address, signatureType uint8, restrictions *KeyRestrictions, witness common.Hash) (Call, error) {
+	r, err := toABIKeyRestrictions(restrictions)
+	if err != nil {
+		return Call{}, err
+	}
+
+	data, err := authorizeKeyWithWitnessABI.Pack("authorizeKey", keyID, signatureType, r, witness)
+	if err != nil {
+		return Call{}, fmt.Errorf("failed to encode authorizeKey with witness: %w", err)
+	}
+	return Call{To: keychainAddress, Data: data}, nil
+}
+
+// BurnKeyAuthorizationWitness builds a burnKeyAuthorizationWitness(bytes32) call.
+func BurnKeyAuthorizationWitness(witness common.Hash) (Call, error) {
+	data, err := burnKeyAuthorizationWitnessABI.Pack("burnKeyAuthorizationWitness", witness)
+	if err != nil {
+		return Call{}, fmt.Errorf("failed to encode burnKeyAuthorizationWitness: %w", err)
+	}
+	return Call{To: keychainAddress, Data: data}, nil
+}
+
+// IsKeyAuthorizationWitnessBurned builds an isKeyAuthorizationWitnessBurned(address,bytes32) call.
+func IsKeyAuthorizationWitnessBurned(account common.Address, witness common.Hash) (Call, error) {
+	data, err := isKeyAuthorizationWitnessBurnedABI.Pack("isKeyAuthorizationWitnessBurned", account, witness)
+	if err != nil {
+		return Call{}, fmt.Errorf("failed to encode isKeyAuthorizationWitnessBurned: %w", err)
 	}
 	return Call{To: keychainAddress, Data: data}, nil
 }
