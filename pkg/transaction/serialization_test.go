@@ -450,26 +450,68 @@ func TestDecodeSignature_MultiByteYParityRejected(t *testing.T) {
 	assert.Contains(t, err.Error(), "expected single byte")
 }
 
-func TestDecodeSignatureEnvelope_RejectsLegacyYParity(t *testing.T) {
+func TestDecodeSignatureEnvelope_NormalizesLegacyRecoveryID(t *testing.T) {
 	tests := []struct {
-		name    string
-		yParity byte
+		name       string
+		recoveryID byte
+		want       uint8
 	}{
-		{name: "legacy_27", yParity: 27},
-		{name: "legacy_28", yParity: 28},
+		{name: "canonical_0", recoveryID: 0, want: 0},
+		{name: "canonical_1", recoveryID: 1, want: 1},
+		{name: "legacy_27_to_0", recoveryID: 27, want: 0},
+		{name: "legacy_28_to_1", recoveryID: 28, want: 1},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			envelope, _, _ := makeSecp256k1Envelope()
-			envelope[64] = tt.yParity
+			envelope[64] = tt.recoveryID
 
 			decoded, err := decodeSignatureEnvelope(envelope)
-			assert.Error(t, err)
-			assert.Nil(t, decoded)
-			assert.Contains(t, err.Error(), "invalid yParity in signature envelope")
+			assert.NoError(t, err)
+			assert.NotNil(t, decoded)
+			assert.Equal(t, tt.want, decoded.Signature.YParity)
 		})
 	}
+}
+
+func TestDecodeSignatureEnvelope_RejectsInvalidRecoveryID(t *testing.T) {
+	envelope, _, _ := makeSecp256k1Envelope()
+	envelope[64] = 29
+
+	decoded, err := decodeSignatureEnvelope(envelope)
+	assert.Error(t, err)
+	assert.Nil(t, decoded)
+	assert.Contains(t, err.Error(), "invalid recovery id in signature envelope")
+}
+
+func TestDeserialize_NormalizesLegacyRecoveryIDEnvelope(t *testing.T) {
+	senderSgn, err := signer.NewSigner("0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
+	assert.NoError(t, err)
+
+	tx := NewBuilder(big.NewInt(42424)).
+		SetGas(21000).
+		AddCall(common.HexToAddress("0x1234567890123456789012345678901234567890"), big.NewInt(0), []byte{}).
+		Build()
+	err = SignTransaction(tx, senderSgn)
+	assert.NoError(t, err)
+
+	serialized, err := Serialize(tx, nil)
+	assert.NoError(t, err)
+	legacySerialized := withLegacyRecoveryIDEnvelope(t, serialized)
+
+	deserialized, err := Deserialize(legacySerialized)
+	assert.NoError(t, err)
+	assert.NotNil(t, deserialized.Signature)
+	assert.Equal(t, tx.Signature.Signature.YParity, deserialized.Signature.Signature.YParity)
+
+	recovered, err := VerifySignature(deserialized)
+	assert.NoError(t, err)
+	assert.Equal(t, senderSgn.Address(), recovered)
+
+	canonicalSerialized, err := Serialize(deserialized, nil)
+	assert.NoError(t, err)
+	assert.Equal(t, serialized, canonicalSerialized)
 }
 
 func TestDecodeSignature_InvalidTupleLength(t *testing.T) {
@@ -906,6 +948,39 @@ func encodeToHex(t *testing.T, rlpList []interface{}) string {
 	rlpBytes, err := rlp.EncodeToBytes(rlpList)
 	assert.NoError(t, err)
 	return "0x76" + hex.EncodeToString(rlpBytes)
+}
+
+func withLegacyRecoveryIDEnvelope(t *testing.T, serialized string) string {
+	t.Helper()
+
+	serializedBytes := common.FromHex(serialized)
+	if len(serializedBytes) < 2 || serializedBytes[0] != 0x76 {
+		t.Fatalf("expected serialized Tempo transaction with 0x76 prefix, got %q", serialized)
+	}
+
+	var raw []interface{}
+	if err := rlp.DecodeBytes(serializedBytes[1:], &raw); err != nil {
+		t.Fatalf("failed to decode RLP: %v", err)
+	}
+	if len(raw) != 14 && len(raw) != 15 {
+		t.Fatalf("expected signed transaction with 14 or 15 fields, got %d", len(raw))
+	}
+
+	signatureField := len(raw) - 1
+	envelope, ok := raw[signatureField].([]byte)
+	if !ok || len(envelope) != 65 {
+		t.Fatalf("expected 65-byte signature envelope in field %d, got %T length %d", signatureField, raw[signatureField], len(envelope))
+	}
+
+	legacyEnvelope := append([]byte(nil), envelope...)
+	legacyEnvelope[64] += 27
+	raw[signatureField] = legacyEnvelope
+
+	rawBytes, err := rlp.EncodeToBytes(raw)
+	if err != nil {
+		t.Fatalf("failed to encode RLP: %v", err)
+	}
+	return "0x76" + hex.EncodeToString(rawBytes)
 }
 
 func makeSecp256k1Envelope() ([]byte, *big.Int, *big.Int) {

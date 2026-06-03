@@ -350,6 +350,17 @@ func decodeYParity(yParityBytes []byte, context string) (uint8, error) {
 	return yParity, nil
 }
 
+func decodeRecoveryID(recoveryID byte, context string) (uint8, error) {
+	switch recoveryID {
+	case 0, 1:
+		return recoveryID, nil
+	case 27, 28:
+		return recoveryID - 27, nil
+	default:
+		return 0, fmt.Errorf("invalid %s: must be 0, 1, 27, or 28, got %d", context, recoveryID)
+	}
+}
+
 // decodeSignature decodes a signature tuple [yParity, r, s].
 func decodeSignature(sigTuple []interface{}) (*signer.Signature, error) {
 	if len(sigTuple) != 3 {
@@ -394,7 +405,7 @@ func decodeSignature(sigTuple []interface{}) (*signer.Signature, error) {
 
 // decodeSignatureEnvelope decodes a signature envelope.
 // Per Tempo Transaction spec, signature types are detected by length and type prefix:
-// - secp256k1: raw 65 bytes (r || s || yParity) - no type prefix
+// - secp256k1: raw 65 bytes (r || s || recoveryID) - no type prefix
 // - keychain: 0x04 + user_address (20 bytes) + inner_sig (65 bytes) = 86 bytes
 // - p256: 0x01 + 129 bytes = 130 bytes
 // - webauthn: 0x02 + variable data (129-2049 bytes total)
@@ -407,7 +418,7 @@ func decodeSignatureEnvelope(envelopeBytes []byte) (*signer.SignatureEnvelope, e
 	if len(envelopeBytes) == 65 {
 		r := new(big.Int).SetBytes(envelopeBytes[0:32])
 		s := new(big.Int).SetBytes(envelopeBytes[32:64])
-		yParity, err := decodeYParity([]byte{envelopeBytes[64]}, "yParity in signature envelope")
+		yParity, err := decodeRecoveryID(envelopeBytes[64], "recovery id in signature envelope")
 		if err != nil {
 			return nil, err
 		}
