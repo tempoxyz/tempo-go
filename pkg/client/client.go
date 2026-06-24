@@ -387,5 +387,48 @@ func (c *Client) SendBatch(ctx context.Context, batch *BatchRequest) ([]*JSONRPC
 		return nil, fmt.Errorf("failed to unmarshal batch response: %w", err)
 	}
 
-	return responses, nil
+	// JSON-RPC 2.0 permits a server to return batch responses in ANY order; the only
+	// reliable way to associate a response with its request is the `id` field. Callers
+	// index the returned slice positionally, so realign it to the request order here.
+	return reorderBatchResponses(batch.Requests(), responses), nil
+}
+
+// reorderBatchResponses realigns batch responses to the request order using the
+// JSON-RPC `id`. A request with no matching response gets a nil slot; responses whose
+// id matches no request are dropped. This makes positional indexing by the caller safe
+// even when the server reorders (or omits) replies.
+func reorderBatchResponses(requests []*JSONRPCRequest, responses []*JSONRPCResponse) []*JSONRPCResponse {
+	byID := make(map[string]*JSONRPCResponse, len(responses))
+	for _, resp := range responses {
+		if resp != nil {
+			byID[normalizeRPCID(resp.ID)] = resp
+		}
+	}
+
+	ordered := make([]*JSONRPCResponse, len(requests))
+	for i, req := range requests {
+		ordered[i] = byID[normalizeRPCID(req.ID)]
+	}
+	return ordered
+}
+
+// normalizeRPCID renders a JSON-RPC id as a stable comparison key. Request ids are
+// assigned as int, but after a round trip through JSON the echoed response id decodes
+// as float64, so both must canonicalize to the same string.
+func normalizeRPCID(id interface{}) string {
+	switch v := id.(type) {
+	case float64:
+		if v == float64(int64(v)) {
+			return "n:" + strconv.FormatInt(int64(v), 10)
+		}
+		return "n:" + strconv.FormatFloat(v, 'g', -1, 64)
+	case int:
+		return "n:" + strconv.Itoa(v)
+	case int64:
+		return "n:" + strconv.FormatInt(v, 10)
+	case string:
+		return "s:" + v
+	default:
+		return fmt.Sprintf("o:%v", v)
+	}
 }
