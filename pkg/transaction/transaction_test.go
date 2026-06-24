@@ -453,3 +453,24 @@ func TestTransaction_Clone(t *testing.T) {
 		assert.Empty(t, cloned.AccessList)
 	})
 }
+
+func TestClonePreservesAwaitingFeePayer(t *testing.T) {
+	recipient := common.HexToAddress("0x1111111111111111111111111111111111111111")
+
+	tx := New()
+	tx.Gas = 21000
+	tx.MaxFeePerGas = big.NewInt(1_000_000_000)
+	tx.MaxPriorityFeePerGas = big.NewInt(1_000_000_000)
+	tx.FeeToken = AlphaUSDAddress
+	tx.AwaitingFeePayer = true
+	tx.Calls = []Call{{To: &recipient, Value: big.NewInt(0), Data: []byte{}}}
+
+	clone := tx.Clone()
+	assert.True(t, clone.AwaitingFeePayer, "clone must preserve AwaitingFeePayer")
+
+	origHash, err := GetSignPayload(tx)
+	assert.NoError(t, err)
+	cloneHash, err := GetSignPayload(clone)
+	assert.NoError(t, err)
+	assert.Equal(t, origHash, cloneHash, "clone must produce the same signing payload as the original")
+}
