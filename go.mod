@@ -4,7 +4,7 @@ module github.com/tempoxyz/tempo-go
 go 1.25.9
 
 require (
-	github.com/ethereum/go-ethereum v1.17.3
+	github.com/ethereum/go-ethereum v1.17.4
 	github.com/google/go-cmp v0.7.0
 	github.com/joho/godotenv v1.5.1
 	github.com/stretchr/testify v1.11.1
