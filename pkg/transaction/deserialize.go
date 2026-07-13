@@ -182,13 +182,21 @@ func Deserialize(serialized string) (*Tx, error) {
 			return nil, fmt.Errorf("%w: invalid feePayerSignatureOrSender (field 11): unexpected %d-byte value",
 				ErrInvalidTransaction, len(feePayerSigRaw))
 		}
-	} else if feePayerSigTuple, ok := raw[11].([]interface{}); ok && len(feePayerSigTuple) == 3 {
+	} else if feePayerSigTuple, ok := raw[11].([]interface{}); ok {
+		if len(feePayerSigTuple) != 3 {
+			return nil, fmt.Errorf("%w: invalid feePayerSignatureOrSender (field 11): expected 3-item signature tuple, got %d items",
+				ErrInvalidTransaction, len(feePayerSigTuple))
+		}
+
 		// Signature tuple: [yParity, r, s]
 		sig, err := decodeSignature(feePayerSigTuple)
 		if err != nil {
 			return nil, fmt.Errorf("failed to decode fee payer signature: %w", err)
 		}
 		tx.FeePayerSignature = sig
+	} else {
+		return nil, fmt.Errorf("%w: invalid feePayerSignatureOrSender (field 11): unexpected type %T",
+			ErrInvalidTransaction, raw[11])
 	}
 
 	// Field 12: authorizationList (reserved for EIP-7702)
