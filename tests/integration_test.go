@@ -76,7 +76,7 @@ func isT2() bool {
 
 func isT5OrLater() bool {
 	switch hardfork {
-	case "T5", "T6":
+	case "T5", "T6", "T7", "T8":
 		return true
 	default:
 		return false
@@ -84,7 +84,16 @@ func isT5OrLater() bool {
 }
 
 func isT6OrLater() bool {
-	return hardfork == "T6"
+	switch hardfork {
+	case "T6", "T7", "T8":
+		return true
+	default:
+		return false
+	}
+}
+
+func isT8OrLater() bool {
+	return hardfork == "T8"
 }
 
 // testContext encapsulates common test dependencies and helpers
@@ -959,7 +968,7 @@ func TestIntegration_T5KeyAuthorizationWitness(t *testing.T) {
 // separate AccountKeychain precompile call.
 func TestIntegration_T6KeyAuthorization(t *testing.T) {
 	if !isT6OrLater() {
-		t.Skip("requires TEMPO_HARDFORK=T6 and a T6-capable RPC")
+		t.Skip("requires TEMPO_HARDFORK=T6 or later and a T6-capable RPC")
 	}
 
 	tc := newTestContext(t)
@@ -1011,6 +1020,18 @@ func TestIntegration_T6KeyAuthorization(t *testing.T) {
 		assert.Equal(t, adminKey.Address(), parseKeyInfoKeyId(resultBytes),
 			"admin key not authorized via tx-embedded authorization")
 	})
+}
+
+// TestIntegration_T8CurrentCommittee queries the effective validator committee (TIP-1070).
+func TestIntegration_T8CurrentCommittee(t *testing.T) {
+	if !isT8OrLater() {
+		t.Skip("requires TEMPO_HARDFORK=T8 and a T8-capable RPC")
+	}
+
+	tc := newTestContext(t)
+	epoch, publicKeys, err := tc.client.GetCommitteeMembers(tc.ctx)
+	require.NoError(t, err)
+	t.Logf("Current committee epoch %d has %d members", epoch, len(publicKeys))
 }
 
 // TestIntegration_KeychainWithLimits tests authorizeKey with enforceLimits=true and a non-empty TokenLimit[]
