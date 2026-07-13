@@ -862,3 +862,43 @@ func TestSendRequest_HTTPError(t *testing.T) {
 	assert.Contains(t, err.Error(), "HTTP error 503")
 	assert.Contains(t, err.Error(), "Service Unavailable")
 }
+
+// Reordered batch responses must retain both their result and error association.
+func TestSendBatchReordersErrorResponsesByID(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var reqs []JSONRPCRequest
+		assert.NoError(t, json.NewDecoder(r.Body).Decode(&reqs))
+
+		w.Header().Set("Content-Type", "application/json")
+		responses := []*JSONRPCResponse{
+			NewJSONRPCErrorResponse(reqs[1].ID, InvalidParams, "invalid transaction", nil),
+			NewJSONRPCResponse(reqs[0].ID, "0xhash1"),
+		}
+		assert.NoError(t, json.NewEncoder(w).Encode(responses))
+	}))
+	defer server.Close()
+
+	batch := NewBatchRequest()
+	batch.Add("eth_sendRawTransaction", "0x76tx1")
+	batch.Add("eth_sendRawTransaction", "0x76tx2")
+
+	responses, err := New(server.URL).SendBatch(context.Background(), batch)
+	assert.NoError(t, err)
+	assert.Equal(t, "0xhash1", responses[0].Result)
+	assert.EqualError(t, responses[1].CheckError(), "RPC error -32602: invalid transaction")
+}
+
+func TestReorderBatchResponsesLeavesOmittedRequestNil(t *testing.T) {
+	requests := []*JSONRPCRequest{
+		NewJSONRPCRequest(1, "first"),
+		NewJSONRPCRequest(2, "second"),
+	}
+	responses := []*JSONRPCResponse{
+		NewJSONRPCResponse(float64(2), "second result"),
+		NewJSONRPCResponse(float64(99), "unknown result"),
+	}
+
+	ordered := reorderBatchResponses(requests, responses)
+	assert.Nil(t, ordered[0])
+	assert.Equal(t, "second result", ordered[1].Result)
+}
