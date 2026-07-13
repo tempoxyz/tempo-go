@@ -902,3 +902,35 @@ func TestReorderBatchResponsesLeavesOmittedRequestNil(t *testing.T) {
 	assert.Nil(t, ordered[0])
 	assert.Equal(t, "second result", ordered[1].Result)
 }
+
+func TestSendBatchReordersByID(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var reqs []JSONRPCRequest
+		err := json.NewDecoder(r.Body).Decode(&reqs)
+		assert.NoError(t, err)
+		assert.Len(t, reqs, 2)
+
+		w.Header().Set("Content-Type", "application/json")
+		// Return responses in REVERSED order to simulate a spec-compliant server
+		// that does not preserve request ordering.
+		responses := []*JSONRPCResponse{
+			NewJSONRPCResponse(reqs[1].ID, "0xhash2"),
+			NewJSONRPCResponse(reqs[0].ID, "0xhash1"),
+		}
+		json.NewEncoder(w).Encode(responses)
+	}))
+	defer server.Close()
+
+	client := New(server.URL)
+
+	batch := NewBatchRequest()
+	batch.Add("eth_sendRawTransaction", "0x76tx1")
+	batch.Add("eth_sendRawTransaction", "0x76tx2")
+
+	responses, err := client.SendBatch(context.Background(), batch)
+	assert.NoError(t, err)
+	assert.Len(t, responses, 2)
+	// Despite the server reversing the reply, results must align with request order.
+	assert.Equal(t, "0xhash1", responses[0].Result)
+	assert.Equal(t, "0xhash2", responses[1].Result)
+}
