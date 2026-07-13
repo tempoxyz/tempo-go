@@ -1,10 +1,12 @@
 package transaction
 
 import (
+	"encoding/hex"
 	"math/big"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/stretchr/testify/assert"
 	"github.com/tempoxyz/tempo-go/pkg/signer"
 )
@@ -452,4 +454,32 @@ func TestTransaction_Clone(t *testing.T) {
 		assert.Empty(t, cloned.Calls)
 		assert.Empty(t, cloned.AccessList)
 	})
+}
+
+// A cloned sponsored transaction must retain the special sender-signing encoding.
+func TestClonePreservesSponsoredSigningFields(t *testing.T) {
+	recipient := common.HexToAddress("0x2222222222222222222222222222222222222222")
+	tx := New()
+	tx.Gas = 21000
+	tx.MaxFeePerGas = big.NewInt(1_000_000_000)
+	tx.MaxPriorityFeePerGas = big.NewInt(1_000_000_000)
+	tx.FeeToken = AlphaUSDAddress
+	tx.AwaitingFeePayer = true
+	tx.Calls = []Call{{To: &recipient, Value: big.NewInt(0), Data: []byte{}}}
+
+	serialized, err := SerializeForSigning(tx.Clone())
+	if !assert.NoError(t, err) {
+		return
+	}
+	raw, err := hex.DecodeString(serialized[4:])
+	if !assert.NoError(t, err) {
+		return
+	}
+
+	var fields []interface{}
+	if !assert.NoError(t, rlp.DecodeBytes(raw, &fields)) {
+		return
+	}
+	assert.Empty(t, fields[10], "sponsored sender signing payload must omit fee token")
+	assert.Equal(t, []byte{0x00}, fields[11], "sponsored sender signing payload must retain marker")
 }
