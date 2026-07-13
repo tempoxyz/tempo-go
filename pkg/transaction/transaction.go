@@ -231,6 +231,7 @@ func (tx *Tx) Clone() *Tx {
 		ValidBefore:          tx.ValidBefore,
 		ValidAfter:           tx.ValidAfter,
 		FeeToken:             tx.FeeToken,
+		AwaitingFeePayer:     tx.AwaitingFeePayer,
 		From:                 tx.From,
 	}
 
