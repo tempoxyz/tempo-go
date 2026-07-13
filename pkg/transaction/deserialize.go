@@ -174,15 +174,28 @@ func Deserialize(serialized string) (*Tx, error) {
 			tx.FeePayerSignature = nil
 			tx.AwaitingFeePayer = true
 		} else if len(feePayerSigRaw) > 0 {
-			// Non-empty bytes that aren't 0x00 - unusual case
+			// A 0x76 transaction's field 11 may only be empty, the single 0x00 marker, or
+			// a [yParity, r, s] signature tuple. Any other non-empty byte string (e.g. a
+			// bare sender address, which belongs to the 0x78 signing form) is malformed.
+			// Reject it instead of silently discarding it.
+			return nil, fmt.Errorf("%w: invalid feePayerSignatureOrSender (field 11): unexpected %d-byte value",
+				ErrInvalidTransaction, len(feePayerSigRaw))
 		}
-	} else if feePayerSigTuple, ok := raw[11].([]interface{}); ok && len(feePayerSigTuple) == 3 {
+	} else if feePayerSigTuple, ok := raw[11].([]interface{}); ok {
+		if len(feePayerSigTuple) != 3 {
+			return nil, fmt.Errorf("%w: invalid feePayerSignatureOrSender (field 11): expected 3-item signature tuple, got %d items",
+				ErrInvalidTransaction, len(feePayerSigTuple))
+		}
+
 		// Signature tuple: [yParity, r, s]
 		sig, err := decodeSignature(feePayerSigTuple)
 		if err != nil {
 			return nil, fmt.Errorf("failed to decode fee payer signature: %w", err)
 		}
 		tx.FeePayerSignature = sig
+	} else {
+		return nil, fmt.Errorf("%w: invalid feePayerSignatureOrSender (field 11): unexpected type %T",
+			ErrInvalidTransaction, raw[11])
 	}
 
 	// Field 12: authorizationList (reserved for EIP-7702)
