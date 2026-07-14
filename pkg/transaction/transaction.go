@@ -222,11 +222,11 @@ func (tx *Tx) Hash() (common.Hash, error) {
 //	tx2.Calls = []transaction.Call{{To: &recipient2, Value: amount2}}
 func (tx *Tx) Clone() *Tx {
 	clone := &Tx{
-		ChainID:              new(big.Int).Set(tx.ChainID),
-		MaxPriorityFeePerGas: new(big.Int).Set(tx.MaxPriorityFeePerGas),
-		MaxFeePerGas:         new(big.Int).Set(tx.MaxFeePerGas),
+		ChainID:              copyBigInt(tx.ChainID),
+		MaxPriorityFeePerGas: copyBigInt(tx.MaxPriorityFeePerGas),
+		MaxFeePerGas:         copyBigInt(tx.MaxFeePerGas),
 		Gas:                  tx.Gas,
-		NonceKey:             new(big.Int).Set(tx.NonceKey),
+		NonceKey:             copyBigInt(tx.NonceKey),
 		Nonce:                tx.Nonce,
 		ValidBefore:          tx.ValidBefore,
 		ValidAfter:           tx.ValidAfter,
@@ -239,7 +239,7 @@ func (tx *Tx) Clone() *Tx {
 	clone.Calls = make([]Call, len(tx.Calls))
 	for i, call := range tx.Calls {
 		clone.Calls[i] = Call{
-			Value: new(big.Int).Set(call.Value),
+			Value: copyBigInt(call.Value),
 			Data:  append([]byte{}, call.Data...),
 		}
 		if call.To != nil {
@@ -266,6 +266,17 @@ func (tx *Tx) Clone() *Tx {
 	// Signature and FeePayerSignature remain nil in the clone
 
 	return clone
+}
+
+// copyBigInt returns an independent copy of n, preserving a nil input as nil.
+// Clone must never dereference a nil *big.Int (which panics); a caller may hold a
+// Tx that was assembled field-by-field rather than through New/NewBuilder, so any
+// of the numeric fields can legitimately be nil at copy time.
+func copyBigInt(n *big.Int) *big.Int {
+	if n == nil {
+		return nil
+	}
+	return new(big.Int).Set(n)
 }
 
 // cloneRLPList recursively deep-copies RLP-like structures ([]interface{} and []byte).
