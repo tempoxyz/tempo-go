@@ -86,21 +86,33 @@ func Deserialize(serialized string) (*Tx, error) {
 	// Parse fields in order
 	// Field 0: chainId
 	if chainID, ok := raw[0].([]byte); ok && len(chainID) > 0 {
+		if err := requireCanonicalInt(chainID, "chainId (field 0)"); err != nil {
+			return nil, err
+		}
 		tx.ChainID = new(big.Int).SetBytes(chainID)
 	}
 
 	// Field 1: maxPriorityFeePerGas
 	if maxPriorityFeePerGas, ok := raw[1].([]byte); ok && len(maxPriorityFeePerGas) > 0 {
+		if err := requireCanonicalInt(maxPriorityFeePerGas, "maxPriorityFeePerGas (field 1)"); err != nil {
+			return nil, err
+		}
 		tx.MaxPriorityFeePerGas = new(big.Int).SetBytes(maxPriorityFeePerGas)
 	}
 
 	// Field 2: maxFeePerGas
 	if maxFeePerGas, ok := raw[2].([]byte); ok && len(maxFeePerGas) > 0 {
+		if err := requireCanonicalInt(maxFeePerGas, "maxFeePerGas (field 2)"); err != nil {
+			return nil, err
+		}
 		tx.MaxFeePerGas = new(big.Int).SetBytes(maxFeePerGas)
 	}
 
 	// Field 3: gas
 	if gas, ok := raw[3].([]byte); ok && len(gas) > 0 {
+		if err := requireCanonicalInt(gas, "gas (field 3)"); err != nil {
+			return nil, err
+		}
 		v, err := bytesToUint64(gas)
 		if err != nil {
 			return nil, fmt.Errorf("gas %v", err)
@@ -128,11 +140,17 @@ func Deserialize(serialized string) (*Tx, error) {
 
 	// Field 6: nonceKey
 	if nonceKey, ok := raw[6].([]byte); ok && len(nonceKey) > 0 {
+		if err := requireCanonicalInt(nonceKey, "nonceKey (field 6)"); err != nil {
+			return nil, err
+		}
 		tx.NonceKey = new(big.Int).SetBytes(nonceKey)
 	}
 
 	// Field 7: nonce
 	if nonce, ok := raw[7].([]byte); ok && len(nonce) > 0 {
+		if err := requireCanonicalInt(nonce, "nonce (field 7)"); err != nil {
+			return nil, err
+		}
 		v, err := bytesToUint64(nonce)
 		if err != nil {
 			return nil, fmt.Errorf("nonce %v", err)
@@ -142,6 +160,9 @@ func Deserialize(serialized string) (*Tx, error) {
 
 	// Field 8: validBefore
 	if validBefore, ok := raw[8].([]byte); ok && len(validBefore) > 0 {
+		if err := requireCanonicalInt(validBefore, "validBefore (field 8)"); err != nil {
+			return nil, err
+		}
 		v, err := bytesToUint64(validBefore)
 		if err != nil {
 			return nil, fmt.Errorf("validBefore %v", err)
@@ -151,6 +172,9 @@ func Deserialize(serialized string) (*Tx, error) {
 
 	// Field 9: validAfter
 	if validAfter, ok := raw[9].([]byte); ok && len(validAfter) > 0 {
+		if err := requireCanonicalInt(validAfter, "validAfter (field 9)"); err != nil {
+			return nil, err
+		}
 		v, err := bytesToUint64(validAfter)
 		if err != nil {
 			return nil, fmt.Errorf("validAfter %v", err)
@@ -312,6 +336,9 @@ func decodeCalls(callsRaw []interface{}) ([]Call, error) {
 
 		// Field 1: value
 		if value, ok := callTuple[1].([]byte); ok && len(value) > 0 {
+			if err := requireCanonicalInt(value, fmt.Sprintf("call %d value", i)); err != nil {
+				return nil, err
+			}
 			call.Value = new(big.Int).SetBytes(value)
 		}
 
@@ -509,6 +536,20 @@ func decodeSignatureEnvelope(envelopeBytes []byte) (*signer.SignatureEnvelope, e
 	default:
 		return nil, fmt.Errorf("unknown signature type prefix: 0x%02x", typePrefix)
 	}
+}
+
+// requireCanonicalInt rejects non-canonical RLP integer encodings. RLP integers
+// must be the minimal big-endian byte string, so a leading zero byte is illegal
+// (0 is the empty string 0x80, 5 is 0x05, never 0x0005). When decoding into
+// []interface{} the RLP layer does not enforce this, so without the check a
+// non-canonical field would be accepted and then re-serialized in canonical form
+// — a byte-level mismatch that changes the transaction hash (malleability).
+func requireCanonicalInt(b []byte, field string) error {
+	if len(b) > 0 && b[0] == 0x00 {
+		return fmt.Errorf("%w: %s uses a non-canonical (leading-zero) integer encoding",
+			ErrInvalidTransaction, field)
+	}
+	return nil
 }
 
 // bytesToUint64 converts a byte slice to uint64, returning an error if it exceeds uint64 range.
