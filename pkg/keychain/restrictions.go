@@ -235,6 +235,21 @@ func (kr *KeyRestrictions) Validate() error {
 	if kr.allowAnyCalls && len(kr.allowedCalls) > 0 {
 		return errors.New("allowedCalls was provided but allowAnyCalls=true; set allowAnyCalls=false to create a scoped key")
 	}
+	// Validate spending-limit amounts. Without this, a nil amount reaches
+	// abi.Pack (which panics with a cryptic reflect error), and negative or
+	// over-uint256 values would encode incorrectly. This mirrors the checks in
+	// KeyAuthorization.Validate.
+	for i, l := range kr.limits {
+		if l.Amount == nil {
+			return fmt.Errorf("limits[%d].amount must not be nil", i)
+		}
+		if l.Amount.Sign() < 0 {
+			return fmt.Errorf("limits[%d].amount must be non-negative", i)
+		}
+		if l.Amount.BitLen() > 256 {
+			return fmt.Errorf("limits[%d].amount exceeds uint256", i)
+		}
+	}
 	// Reject duplicate targets — order-dependent IsCallAllowed behaviour is confusing.
 	seen := make(map[common.Address]struct{}, len(kr.allowedCalls))
 	for _, s := range kr.allowedCalls {
