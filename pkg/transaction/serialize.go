@@ -103,7 +103,11 @@ func buildRLPList(tx *Tx, opts *SerializeOptions) ([]interface{}, error) {
 	)
 
 	// Field 11: feePayerSignatureOrSender
-	rlpList = append(rlpList, encodeFeePayerField(tx, opts))
+	feePayerField, err := encodeFeePayerField(tx, opts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode fee payer field: %w", err)
+	}
+	rlpList = append(rlpList, feePayerField)
 
 	// Field 12: authorizationList (empty for now)
 	rlpList = append(rlpList, []interface{}{})
@@ -146,14 +150,19 @@ func encodeFeeTokenConditional(token common.Address, skip bool) []byte {
 
 // encodeFeePayerField encodes field 11 (feePayerSignatureOrSender).
 // The encoding depends on the serialization format and whether a fee payer signature exists.
-func encodeFeePayerField(tx *Tx, opts *SerializeOptions) interface{} {
+func encodeFeePayerField(tx *Tx, opts *SerializeOptions) (interface{}, error) {
 	// For fee payer signing format (0x78), include sender address
 	if opts.Format == FormatFeePayer {
-		return opts.Sender.Bytes()
+		return opts.Sender.Bytes(), nil
 	}
 
 	// If transaction has fee payer signature, encode it as [yParity, r, s]
 	if tx.FeePayerSignature != nil {
+		// Guard against a directly-assembled Signature whose R or S is nil:
+		// (*big.Int)(nil).Bytes() panics, so reject it instead of crashing Serialize.
+		if tx.FeePayerSignature.R == nil || tx.FeePayerSignature.S == nil {
+			return nil, fmt.Errorf("fee payer signature R and S must not be nil")
+		}
 		var yParityBytes []byte
 		if tx.FeePayerSignature.YParity != 0 {
 			yParityBytes = []byte{tx.FeePayerSignature.YParity}
@@ -162,16 +171,16 @@ func encodeFeePayerField(tx *Tx, opts *SerializeOptions) interface{} {
 			yParityBytes,
 			tx.FeePayerSignature.R.Bytes(),
 			tx.FeePayerSignature.S.Bytes(),
-		}
+		}, nil
 	}
 
 	// If awaiting fee payer, use 0x00 marker
 	if tx.AwaitingFeePayer {
-		return []byte{0x00}
+		return []byte{0x00}, nil
 	}
 
 	// No fee payer signature - use empty byte array
-	return []byte{}
+	return []byte{}, nil
 }
 
 // encodeWithPrefix encodes the RLP list and adds the appropriate TempoTransaction type prefix.
@@ -324,6 +333,11 @@ func encodeSignatureEnvelope(envelope *signer.SignatureEnvelope) ([]byte, error)
 	if envelope.Type == "secp256k1" || envelope.Type == "" {
 		if envelope.Signature == nil {
 			return nil, fmt.Errorf("secp256k1 signature envelope has no parsed signature")
+		}
+
+		// Guard against nil R/S: (*big.Int)(nil).Bytes() panics.
+		if envelope.Signature.R == nil || envelope.Signature.S == nil {
+			return nil, fmt.Errorf("secp256k1 signature R and S must not be nil")
 		}
 
 		rBytes := envelope.Signature.R.Bytes()
