@@ -401,6 +401,17 @@ func RemoveAllowedCalls(keyID common.Address, target common.Address) (Call, erro
 
 // UpdateSpendingLimit builds an updateSpendingLimit(address,address,uint256) call.
 func UpdateSpendingLimit(keyID common.Address, token common.Address, newLimit *big.Int) (Call, error) {
+	// Guard the amount before it reaches abi.Pack: a nil *big.Int panics with a
+	// reflect error, and negative / over-uint256 values are not encodable.
+	if newLimit == nil {
+		return Call{}, fmt.Errorf("newLimit must not be nil")
+	}
+	if newLimit.Sign() < 0 {
+		return Call{}, fmt.Errorf("newLimit must be non-negative")
+	}
+	if newLimit.BitLen() > 256 {
+		return Call{}, fmt.Errorf("newLimit exceeds uint256")
+	}
 	data, err := updateSpendingLimitABI.Pack("updateSpendingLimit", keyID, token, newLimit)
 	if err != nil {
 		return Call{}, fmt.Errorf("failed to encode updateSpendingLimit: %w", err)
