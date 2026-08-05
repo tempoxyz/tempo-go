@@ -181,6 +181,9 @@ func DEXStorageCredits(user common.Address) (Call, error) {
 // ParseUint64Result decodes a single uint64 returned by balanceOf, budgetOf, or
 // storageCredits.
 func ParseUint64Result(result []byte) (uint64, error) {
+	if len(result) != 32 {
+		return 0, fmt.Errorf("invalid uint64 result length: expected 32, got %d", len(result))
+	}
 	values, err := balanceOfABI.Unpack("balanceOf", result)
 	if err != nil {
 		return 0, fmt.Errorf("failed to decode uint64 result: %w", err)
@@ -193,6 +196,9 @@ func ParseUint64Result(result []byte) (uint64, error) {
 
 // ParseModeResult decodes the Mode returned by modeOf.
 func ParseModeResult(result []byte) (Mode, error) {
+	if len(result) != 32 {
+		return 0, fmt.Errorf("invalid modeOf result length: expected 32, got %d", len(result))
+	}
 	values, err := modeOfABI.Unpack("modeOf", result)
 	if err != nil {
 		return 0, fmt.Errorf("failed to decode modeOf result: %w", err)
@@ -200,5 +206,9 @@ func ParseModeResult(result []byte) (Mode, error) {
 	if len(values) != 1 {
 		return 0, fmt.Errorf("expected 1 return value, got %d", len(values))
 	}
-	return Mode(values[0].(uint8)), nil
+	mode := Mode(values[0].(uint8))
+	if mode != ModeRefund && mode != ModePreserve && mode != ModeDirect {
+		return 0, fmt.Errorf("invalid storage creation mode: %d", mode)
+	}
+	return mode, nil
 }

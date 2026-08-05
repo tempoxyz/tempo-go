@@ -112,6 +112,20 @@ func TestParseUint64Result(t *testing.T) {
 	if got != 42 {
 		t.Errorf("expected 42, got %d", got)
 	}
+
+	for _, tc := range []struct {
+		name   string
+		result []byte
+	}{
+		{"short", encoded[:len(encoded)-1]},
+		{"trailing data", append(append([]byte{}, encoded...), make([]byte, 32)...)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := ParseUint64Result(tc.result); err == nil {
+				t.Fatal("expected error, got nil")
+			}
+		})
+	}
 }
 
 func TestParseModeResult(t *testing.T) {
@@ -125,5 +139,27 @@ func TestParseModeResult(t *testing.T) {
 	}
 	if got != ModePreserve {
 		t.Errorf("expected %d, got %d", ModePreserve, got)
+	}
+
+	for _, tc := range []struct {
+		name   string
+		result []byte
+	}{
+		{"short", encoded[:len(encoded)-1]},
+		{"trailing data", append(append([]byte{}, encoded...), make([]byte, 32)...)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := ParseModeResult(tc.result); err == nil {
+				t.Fatal("expected error, got nil")
+			}
+		})
+	}
+
+	invalid, err := modeOfABI.Methods["modeOf"].Outputs.Pack(uint8(ModeDirect + 1))
+	if err != nil {
+		t.Fatalf("failed to pack invalid mode: %v", err)
+	}
+	if _, err := ParseModeResult(invalid); err == nil {
+		t.Fatal("expected error for invalid mode, got nil")
 	}
 }
