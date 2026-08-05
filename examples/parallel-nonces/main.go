@@ -128,8 +128,8 @@ func main() {
 				SetNonceKey(key).
 				SetNonce(nonce).
 				SetGas(100000).
-				SetMaxFeePerGas(big.NewInt(10000000000)).
-				SetMaxPriorityFeePerGas(big.NewInt(1000000000)).
+				SetMaxFeePerGas(big.NewInt(20000000000)).        // attodollars/gas; above the T7 base-fee cap (1.2e10)
+				SetMaxPriorityFeePerGas(big.NewInt(1000000000)). // attodollars/gas
 				AddCall(recipient, big.NewInt(0), []byte{}).
 				Build()
 

@@ -71,7 +71,9 @@ func main() {
     transferData := buildERC20TransferData(recipient, amount)
 
     tx := transaction.NewDefault(transaction.ChainIdModerato)
-    tx.MaxFeePerGas = big.NewInt(2000000000)
+    // Fees are in attodollars (1e-18 USD) per gas. Since T7 the base fee is
+    // dynamic, capped at 1.2e10; set max fee at or above the cap to stay includable.
+    tx.MaxFeePerGas = big.NewInt(20000000000)
     tx.MaxPriorityFeePerGas = big.NewInt(1000000000)
     tx.Gas = 100000
     tx.Calls = []transaction.Call{{
@@ -110,7 +112,8 @@ func buildERC20TransferData(to common.Address, amount *big.Int) []byte {
 
 ```go
 tx := transaction.NewDefault(transaction.ChainIdMainnet)
-tx.MaxFeePerGas = big.NewInt(2000000000)
+// Fees are in attodollars (1e-18 USD) per gas; T7 caps the base fee at 1.2e10.
+tx.MaxFeePerGas = big.NewInt(20000000000)
 tx.MaxPriorityFeePerGas = big.NewInt(1000000000)
 tx.Gas = 100000
 tx.Calls = []transaction.Call{{

@@ -79,8 +79,8 @@ func main() {
 	tx := transaction.NewBuilder(big.NewInt(chainID)).
 		SetNonce(nonce).
 		SetGas(100000).
-		SetMaxFeePerGas(big.NewInt(10000000000)).        // 10 gwei
-		SetMaxPriorityFeePerGas(big.NewInt(1000000000)). // 1 gwei
+		SetMaxFeePerGas(big.NewInt(20000000000)).        // attodollars/gas; above the T7 base-fee cap (1.2e10)
+		SetMaxPriorityFeePerGas(big.NewInt(1000000000)). // attodollars/gas
 		AddCall(
 			common.HexToAddress(recipientAddress),
 			big.NewInt(0),
