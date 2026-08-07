@@ -454,6 +454,37 @@ func TestTransaction_Clone(t *testing.T) {
 		assert.Empty(t, cloned.Calls)
 		assert.Empty(t, cloned.AccessList)
 	})
+
+	t.Run("clone nil big integers", func(t *testing.T) {
+		tests := []struct {
+			name      string
+			original  *Tx
+			assertNil func(*testing.T, *Tx)
+		}{
+			{
+				name:     "zero value transaction",
+				original: &Tx{},
+				assertNil: func(t *testing.T, cloned *Tx) {
+					assert.Nil(t, cloned.ChainID)
+					assert.Nil(t, cloned.MaxPriorityFeePerGas)
+					assert.Nil(t, cloned.MaxFeePerGas)
+					assert.Nil(t, cloned.NonceKey)
+				},
+			},
+			{
+				name:      "call value",
+				original:  &Tx{Calls: []Call{{Value: nil}}},
+				assertNil: func(t *testing.T, cloned *Tx) { assert.Nil(t, cloned.Calls[0].Value) },
+			},
+		}
+
+		for _, test := range tests {
+			t.Run(test.name, func(t *testing.T) {
+				cloned := test.original.Clone()
+				test.assertNil(t, cloned)
+			})
+		}
+	})
 }
 
 // A cloned sponsored transaction must retain the special sender-signing encoding.

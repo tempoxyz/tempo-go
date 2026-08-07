@@ -157,3 +157,71 @@ func FuzzSignedTransactionRoundTrip(f *testing.F) {
 		assert.Equal(t, sgn.Address(), recoveredAddr)
 	})
 }
+
+func FuzzClone(f *testing.F) {
+	for _, nilMask := range []uint8{0, 1, 2, 4, 8, 16, 31} {
+		f.Add(nilMask, []byte{0x01}, []byte{0xaa})
+	}
+
+	f.Fuzz(func(t *testing.T, nilMask uint8, integerBytes, callData []byte) {
+		if len(integerBytes) > 64 || len(callData) > 4096 {
+			return
+		}
+
+		newInt := func(offset int64) *big.Int {
+			return new(big.Int).Add(new(big.Int).SetBytes(integerBytes), big.NewInt(offset))
+		}
+
+		tx := &Tx{
+			ChainID:              newInt(1),
+			MaxPriorityFeePerGas: newInt(2),
+			MaxFeePerGas:         newInt(3),
+			NonceKey:             newInt(4),
+			Calls:                []Call{{Value: newInt(5), Data: callData}},
+		}
+		if nilMask&1 != 0 {
+			tx.ChainID = nil
+		}
+		if nilMask&2 != 0 {
+			tx.MaxPriorityFeePerGas = nil
+		}
+		if nilMask&4 != 0 {
+			tx.MaxFeePerGas = nil
+		}
+		if nilMask&8 != 0 {
+			tx.NonceKey = nil
+		}
+		if nilMask&16 != 0 {
+			tx.Calls[0].Value = nil
+		}
+
+		cloned := tx.Clone()
+		assertBigIntClone := func(name string, original, clone *big.Int) {
+			t.Helper()
+			if original == nil {
+				if clone != nil {
+					t.Errorf("%s: cloned nil value as %v", name, clone)
+				}
+				return
+			}
+			if clone == nil {
+				t.Errorf("%s: cloned non-nil value as nil", name)
+				return
+			}
+			if original == clone {
+				t.Errorf("%s: clone aliases original", name)
+			}
+			expected := new(big.Int).Set(original)
+			original.Add(original, big.NewInt(1))
+			if clone.Cmp(expected) != 0 {
+				t.Errorf("%s: clone changed after original mutation: got %v, want %v", name, clone, expected)
+			}
+		}
+
+		assertBigIntClone("chain ID", tx.ChainID, cloned.ChainID)
+		assertBigIntClone("max priority fee per gas", tx.MaxPriorityFeePerGas, cloned.MaxPriorityFeePerGas)
+		assertBigIntClone("max fee per gas", tx.MaxFeePerGas, cloned.MaxFeePerGas)
+		assertBigIntClone("nonce key", tx.NonceKey, cloned.NonceKey)
+		assertBigIntClone("call value", tx.Calls[0].Value, cloned.Calls[0].Value)
+	})
+}
