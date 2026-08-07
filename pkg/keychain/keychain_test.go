@@ -28,7 +28,10 @@ func TestBuildKeychainSignature(t *testing.T) {
 	innerSig := signer.NewSignature(r, s, yParity)
 	rootAccount := common.HexToAddress("0x70997970C51812dc3A010C7d01b50e0d17dc79C8")
 
-	keychainSig := BuildKeychainSignature(innerSig, rootAccount)
+	keychainSig, err := BuildKeychainSignature(innerSig, rootAccount)
+	if err != nil {
+		t.Fatalf("BuildKeychainSignature: %v", err)
+	}
 
 	// Verify length
 	if len(keychainSig) != KeychainSignatureLength {
@@ -63,7 +66,10 @@ func TestParseKeychainSignature(t *testing.T) {
 	innerSig := signer.NewSignature(r, s, yParity)
 	rootAccount := common.HexToAddress("0x70997970C51812dc3A010C7d01b50e0d17dc79C8")
 
-	keychainSig := BuildKeychainSignature(innerSig, rootAccount)
+	keychainSig, err := BuildKeychainSignature(innerSig, rootAccount)
+	if err != nil {
+		t.Fatalf("BuildKeychainSignature: %v", err)
+	}
 
 	// Parse it back
 	sigType, parsedRoot, parsedInner, err := ParseKeychainSignature(keychainSig)
