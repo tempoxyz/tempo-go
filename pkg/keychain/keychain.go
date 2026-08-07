@@ -34,8 +34,18 @@ const (
 //   - innerSig: The secp256k1 signature from the access key
 //   - rootAccount: The address of the root account (the account the access key acts on behalf of)
 //
-// Returns the 86-byte Keychain signature.
-func BuildKeychainSignature(innerSig *signer.Signature, rootAccount common.Address) []byte {
+// Returns the 86-byte Keychain signature, or an error if innerSig is malformed.
+func BuildKeychainSignature(innerSig *signer.Signature, rootAccount common.Address) ([]byte, error) {
+	if innerSig == nil || innerSig.R == nil || innerSig.S == nil {
+		return nil, fmt.Errorf("inner signature and its R/S components must be non-nil")
+	}
+	if l := len(innerSig.R.Bytes()); l > 32 {
+		return nil, fmt.Errorf("inner signature R exceeds 32 bytes (got %d)", l)
+	}
+	if l := len(innerSig.S.Bytes()); l > 32 {
+		return nil, fmt.Errorf("inner signature S exceeds 32 bytes (got %d)", l)
+	}
+
 	result := make([]byte, KeychainSignatureLength)
 
 	// Byte 0: Keychain V2 signature type (0x04)
@@ -44,19 +54,16 @@ func BuildKeychainSignature(innerSig *signer.Signature, rootAccount common.Addre
 	// Bytes 1-20: Root account address
 	copy(result[1:21], rootAccount.Bytes())
 
-	// Bytes 21-85: Inner signature (r || s || v)
-	// R: 32 bytes
-	rBytes := innerSig.R.Bytes()
-	copy(result[21+(32-len(rBytes)):53], rBytes)
+	// Bytes 21-52: R (left-padded to 32 bytes)
+	innerSig.R.FillBytes(result[21:53])
 
-	// S: 32 bytes
-	sBytes := innerSig.S.Bytes()
-	copy(result[53+(32-len(sBytes)):85], sBytes)
+	// Bytes 53-84: S (left-padded to 32 bytes)
+	innerSig.S.FillBytes(result[53:85])
 
-	// V: 1 byte (yParity)
+	// Byte 85: V (yParity)
 	result[85] = innerSig.YParity
 
-	return result
+	return result, nil
 }
 
 // SignWithAccessKey signs a Tempo transaction using an access key.
@@ -108,7 +115,10 @@ func SignWithAccessKey(tx *transaction.Tx, accessKeySigner *signer.Signer, rootA
 	}
 
 	// Build the Keychain signature
-	keychainSig := BuildKeychainSignature(innerSig, rootAccount)
+	keychainSig, err := BuildKeychainSignature(innerSig, rootAccount)
+	if err != nil {
+		return fmt.Errorf("failed to build keychain signature: %w", err)
+	}
 
 	// Create a signature envelope with the raw Keychain signature bytes
 	tx.Signature = &signer.SignatureEnvelope{

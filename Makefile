@@ -62,7 +62,7 @@ endif
 
 # Run all fuzz tests sequentially
 fuzz-all:
-	@for pkg in ./pkg/transaction ./pkg/signer; do \
+	@for pkg in ./pkg/transaction ./pkg/signer ./pkg/keychain; do \
 		echo "=== Fuzzing $$pkg ==="; \
 		for test in $$(go test -list 'Fuzz.*' $$pkg 2>/dev/null | grep '^Fuzz'); do \
 			echo "Running $$test..."; \
