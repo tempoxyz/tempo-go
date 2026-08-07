@@ -384,6 +384,13 @@ func (c *Client) SendBatch(ctx context.Context, batch *BatchRequest) ([]*JSONRPC
 
 	var responses []*JSONRPCResponse
 	if err := json.Unmarshal(responseBody, &responses); err != nil {
+		// A batch that fails as a whole (e.g. a parse or invalid-request error)
+		// is returned by a compliant server as a single JSON-RPC error object,
+		// not an array. Surface that error instead of an opaque unmarshal failure.
+		var single JSONRPCResponse
+		if jsonErr := json.Unmarshal(responseBody, &single); jsonErr == nil && single.Error != nil {
+			return nil, fmt.Errorf("batch request rejected: %w", single.Error)
+		}
 		return nil, fmt.Errorf("failed to unmarshal batch response: %w", err)
 	}
 
