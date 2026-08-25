@@ -13,7 +13,7 @@ jobs:
     steps:
       # fetch-depth: 0 is required so the action can `git diff origin/main...HEAD`
       # against the base branch.
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -24,4 +24,4 @@ jobs:
       # ecosystem support, so the AI generation step would error out with
       # `could not detect workspace`. Re-enable AI suggestions once a
       # Go-aware binary is published to `wevm/changelogs-rs/releases`.
-      - uses: tempoxyz/changelogs/check@master
+      - uses: tempoxyz/changelogs/check@a19f62e3fdbd6d07b8900eb0568ed09b868bf84d
