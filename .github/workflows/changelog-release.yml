@@ -7,10 +7,20 @@ on:
 jobs:
   release:
     runs-on: ubuntu-latest
+    # The changelog-release version PR, branch, tags, and GitHub releases are
+    # created with a short-lived GitHub App token minted via the github-sts
+    # action (authorized by .github/sts/release-pr.sts.yaml); the built-in
+    # GITHUB_TOKEN is not allowed to create pull requests.
     permissions:
-      contents: write
-      pull-requests: write
+      contents: read
+      id-token: write
     steps:
+      - name: Fetch GitHub token via STS
+        id: app-token
+        uses: tempoxyz/gh-actions/actions/github-sts@183a02178c660ce295e9a262edc5857cb7135f06 # main
+        with:
+          policy: release-pr
+
       # fetch-depth: 0 + fetch-tags: true so the Go ecosystem can read prior
       # vX.Y.Z tags when computing the next version, and so the action can diff
       # CHANGELOG.md.
@@ -18,7 +28,8 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
+          token: ${{ steps.app-token.outputs.token }}
 
       - uses: tempoxyz/changelogs@master
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
