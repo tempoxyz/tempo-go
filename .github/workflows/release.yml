@@ -27,7 +27,7 @@ jobs:
           echo "EOF" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        uses: tempoxyz/gh-actions/actions/gh-release@ab45d76f6e7420a094281a22aee1973ecc0754f8
         with:
           body: ${{ steps.changelog.outputs.notes }}
-          generate_release_notes: false
+          generate-release-notes: false
