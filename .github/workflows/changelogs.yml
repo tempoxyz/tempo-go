@@ -24,4 +24,4 @@ jobs:
       # ecosystem support, so the AI generation step would error out with
       # `could not detect workspace`. Re-enable AI suggestions once a
       # Go-aware binary is published to `wevm/changelogs-rs/releases`.
-      - uses: tempoxyz/changelogs/check@a19f62e3fdbd6d07b8900eb0568ed09b868bf84d
+      - uses: tempoxyz/changelogs/check@7c6208cf69e62cb5448567a3c94e9688020285e1
