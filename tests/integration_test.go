@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -714,19 +715,34 @@ func TestIntegration_AccessKeys(t *testing.T) {
 	t.Logf("Access key: %s", accessKey.Address().Hex())
 
 	t.Run("AuthorizeAccessKey", func(t *testing.T) {
-		tx := tc.newTxBuilder().
-			SetNonce(tc.getNonce(rootAccount.Address())).
-			SetGas(600000).
-			AddCall(counterContract, big.NewInt(0), incrementSelector).
-			Build()
+		calldata := buildAuthorizeKeyCalldata(accessKey.Address(), farFutureKeyExpiry, false)
 
-		auth := keychain.NewKeyAuthorization(
-			uint64(tc.chainID), keychain.SignatureTypeSecp256k1, accessKey.Address(),
-		).WithExpiry(uint64(farFutureKeyExpiry))
-		require.NoError(t, auth.SignAndAttach(tx, rootAccount))
-		require.NoError(t, transaction.SignTransaction(tx, rootAccount))
+		eip1559Tx := types.NewTx(&types.DynamicFeeTx{
+			ChainID:   big.NewInt(tc.chainID),
+			Nonce:     tc.getNonce(rootAccount.Address()),
+			GasTipCap: tc.gasPrice,
+			GasFeeCap: tc.gasPrice,
+			Gas:       600000,
+			To:        &accountKeychain,
+			Value:     big.NewInt(0),
+			Data:      calldata,
+		})
 
-		tc.sendTxExpectSuccess(tx, "Transaction key authorization failed")
+		signedTx, err := types.SignTx(eip1559Tx, types.NewLondonSigner(big.NewInt(tc.chainID)), rootAccount.PrivateKey())
+		require.NoError(t, err)
+
+		txBytes, err := signedTx.MarshalBinary()
+		require.NoError(t, err)
+
+		txHash, err := tc.client.SendRawTransaction(tc.ctx, "0x"+hex.EncodeToString(txBytes))
+		require.NoError(t, err)
+		t.Logf("Authorize access key tx hash: %s", txHash)
+
+		receipt := tc.waitForReceipt(txHash)
+		require.NotNil(t, receipt, "Failed to get authorization receipt")
+		status, _ := receipt["status"].(string)
+		require.Equal(t, "0x1", status, "Authorization tx failed")
+		tc.formatReceipt(receipt)
 	})
 
 	time.Sleep(3 * time.Second)
@@ -808,8 +824,8 @@ func parseABIEncodedBool(t *testing.T, result string) bool {
 	return false
 }
 
-// TestIntegration_KeychainLifecycle tests inline authorization followed by keychain queries and revocation.
-func TestIntegration_KeychainLifecycle(t *testing.T) {
+// TestIntegration_KeychainSelectors tests that keychain selectors work against the precompile
+func TestIntegration_KeychainSelectors(t *testing.T) {
 	tc := newTestContext(t)
 
 	rootAccount := tc.createAndFundSigner()
@@ -822,19 +838,17 @@ func TestIntegration_KeychainLifecycle(t *testing.T) {
 	t.Logf("Root account: %s", rootAccount.Address().Hex())
 	t.Logf("Access key: %s", accessKey.Address().Hex())
 
-	// Step 1: Authorize through the transaction key_authorization field. TIP-1099 removes
-	// the direct authorizeKey precompile selectors at T11.
+	// Step 1: Authorize the key with enforceLimits=false, empty TokenLimit[]
+	authCalldata := buildAuthorizeKeyCalldata(accessKey.Address(), expiry, false)
+
 	authTx := tc.newTxBuilder().
 		SetNonce(tc.getNonce(rootAccount.Address())).
 		SetGas(600000).
-		AddCall(counterContract, big.NewInt(0), incrementSelector).
+		AddCall(accountKeychain, big.NewInt(0), authCalldata).
 		Build()
 
-	auth := keychain.NewKeyAuthorization(
-		uint64(tc.chainID), keychain.SignatureTypeSecp256k1, accessKey.Address(),
-	).WithExpiry(uint64(expiry))
-	require.NoError(t, auth.SignAndAttach(authTx, rootAccount))
-	require.NoError(t, transaction.SignTransaction(authTx, rootAccount))
+	err = transaction.SignTransaction(authTx, rootAccount)
+	require.NoError(t, err)
 
 	receipt := tc.sendTxExpectSuccess(authTx, "Authorization tx failed")
 	require.NotNil(t, receipt)
