@@ -1,5 +1,20 @@
 # Changelog
 
+## `github.com/tempoxyz/tempo-go@0.6.0`
+
+### Minor Changes
+
+- `BuildKeychainSignature` now returns `([]byte, error)` and rejects nil or over-32-byte R/S components instead of panicking or silently corrupting the signature. (by @BrendanRyan, [#93](https://github.com/tempoxyz/tempo-go/pull/93))
+- Add the `storagecredits` package with T7 bindings for the TIP-1060 storage credits precompile (`setMode`, `setBudget`, `balanceOf`, `modeOf`, `budgetOf`) and the StablecoinDEX `storageCredits(address)` view (TIP-1064). Update example fees to sit above the T7 dynamic base-fee cap (TIP-1067) and clarify that fees are denominated in attodollars per gas. (by @stevencartavia, [#73](https://github.com/tempoxyz/tempo-go/pull/73))
+
+### Patch Changes
+
+- Prevent `Tx.Clone` from panicking when transaction or call `big.Int` fields are nil. (by @BrendanRyan, [#94](https://github.com/tempoxyz/tempo-go/pull/94))
+- Restored live integration test compilation after switching keychain setup to transaction-embedded authorization. (by @DerekCofausper, [#101](https://github.com/tempoxyz/tempo-go/pull/101))
+- Validate token amounts in `KeyRestrictions.Validate` and `UpdateSpendingLimit` so nil, negative, or over-uint256 values return an error instead of panicking inside ABI packing. (by @Alex, [#83](https://github.com/tempoxyz/tempo-go/pull/83))
+- `SendBatch` now surfaces a top-level JSON-RPC error object (returned when a whole batch is rejected) as a `*JSONRPCError`, instead of masking it behind a generic unmarshal error. (by @Salad, [#86](https://github.com/tempoxyz/tempo-go/pull/86))
+- Updated live keychain integration coverage to use transaction-embedded authorization on TIP-1099 networks. (by @DerekCofausper, [#100](https://github.com/tempoxyz/tempo-go/pull/100))
+
 ## `github.com/tempoxyz/tempo-go@0.5.0`
 
 ### Minor Changes
