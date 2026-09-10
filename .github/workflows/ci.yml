@@ -90,9 +90,10 @@ jobs:
         exit 1
 
     - name: Run integration tests (localnet lacks fee token liquidity for on-chain tests)
-      run: go test -v -run "TestIntegration_NodeConnection|TestIntegration_BuilderValidation|TestIntegration_RoundTrip" -timeout=5m ./tests
+      run: go test -v -run "TestIntegration_NodeConnection|TestIntegration_BuilderValidation|TestIntegration_RoundTrip|TestIntegration_T8CurrentCommittee" -timeout=5m ./tests
       env:
         TEMPO_RPC_URL: http://localhost:8545
+        TEMPO_HARDFORK: T8
 
     - name: Show Tempo node logs on failure
       if: failure()
