@@ -49,9 +49,9 @@ func TestBuildKeychainSignature(t *testing.T) {
 		t.Errorf("expected root account %s, got %s", rootAccount.Hex(), recoveredRoot.Hex())
 	}
 
-	// Verify yParity
-	if keychainSig[85] != yParity {
-		t.Errorf("expected yParity %d, got %d", yParity, keychainSig[85])
+	// Verify canonical wire recovery ID.
+	if keychainSig[85] != 27+yParity {
+		t.Errorf("expected recovery ID %d, got %d", 27+yParity, keychainSig[85])
 	}
 }
 

@@ -99,14 +99,18 @@ func buildRLPList(tx *Tx, opts *SerializeOptions) ([]interface{}, error) {
 		uint64ToBytes(tx.Nonce),
 		uint64ToBytes(tx.ValidBefore),
 		uint64ToBytes(tx.ValidAfter),
-		encodeFeeTokenConditional(tx.FeeToken, skipFeeToken),
+		encodeFeeToken(tx, skipFeeToken),
 	)
 
 	// Field 11: feePayerSignatureOrSender
 	rlpList = append(rlpList, encodeFeePayerField(tx, opts))
 
-	// Field 12: authorizationList (empty for now)
-	rlpList = append(rlpList, []interface{}{})
+	// Field 12: Tempo EIP-7702 authorization list.
+	authorizations, err := encodeAuthorizations(tx.AuthorizationList)
+	if err != nil {
+		return nil, err
+	}
+	rlpList = append(rlpList, authorizations)
 
 	// Field 13 (optional): keyAuthorization
 	if tx.KeyAuthorization != nil {
@@ -125,23 +129,15 @@ func buildRLPList(tx *Tx, opts *SerializeOptions) ([]interface{}, error) {
 	return rlpList, nil
 }
 
-// encodeFeeToken encodes the fee token address.
-// Returns empty bytes if the address is zero (native token).
-func encodeFeeToken(token common.Address) []byte {
-	if token != (common.Address{}) {
-		return token.Bytes()
-	}
-	return []byte{}
-}
-
-// encodeFeeTokenConditional encodes the fee token, optionally skipping it.
+// encodeFeeToken encodes the fee-token preference, preserving an explicitly
+// selected zero address while leaving an omitted preference empty.
 // Per Tempo spec, fee_token is skipped (encoded as 0x80/empty) when fee payer is involved
 // in the sender's signing payload, allowing the fee payer to specify the fee token.
-func encodeFeeTokenConditional(token common.Address, skip bool) []byte {
-	if skip {
-		return []byte{}
+func encodeFeeToken(tx *Tx, skip bool) []byte {
+	if skip || (!tx.FeeTokenSet && tx.FeeToken == (common.Address{})) {
+		return nil
 	}
-	return encodeFeeToken(token)
+	return tx.FeeToken.Bytes()
 }
 
 // encodeFeePayerField encodes field 11 (feePayerSignatureOrSender).
@@ -320,40 +316,28 @@ func encodeSignatureEnvelope(envelope *signer.SignatureEnvelope) ([]byte, error)
 		return []byte{}, nil
 	}
 
-	// secp256k1: raw 65 bytes (no type prefix)
+	// secp256k1: canonical 65 bytes r || s || v (no type prefix). The wire form
+	// uses legacy recovery IDs (27/28) like alloy; YParity stays 0/1 in the model.
 	if envelope.Type == "secp256k1" || envelope.Type == "" {
 		if envelope.Signature == nil {
 			return nil, fmt.Errorf("secp256k1 signature envelope has no parsed signature")
 		}
-
-		rBytes := envelope.Signature.R.Bytes()
-		if len(rBytes) > 32 {
-			return nil, fmt.Errorf("signature R exceeds 32 bytes: got %d", len(rBytes))
-		}
-
-		sBytes := envelope.Signature.S.Bytes()
-		if len(sBytes) > 32 {
-			return nil, fmt.Errorf("signature S exceeds 32 bytes: got %d", len(sBytes))
-		}
-
-		if envelope.Signature.YParity > 1 {
-			return nil, fmt.Errorf("invalid yParity: must be 0 or 1, got %d", envelope.Signature.YParity)
-		}
-
-		result := make([]byte, 65)
-		copy(result[32-len(rBytes):32], rBytes)
-		copy(result[64-len(sBytes):64], sBytes)
-		result[64] = envelope.Signature.YParity
-
-		return result, nil
+		return envelope.Signature.Bytes()
 	}
 
-	// keychain, p256, webauthn: use raw bytes directly (already includes type prefix)
-	if envelope.Raw != nil {
-		return envelope.Raw, nil
+	// Canonicalize raw envelopes at the boundary so malformed bytes, type
+	// mismatches, and non-canonical nested values cannot leak into a signed transaction.
+	if len(envelope.Raw) == 0 {
+		return nil, fmt.Errorf("signature envelope type %q has no raw bytes", envelope.Type)
 	}
-
-	return nil, fmt.Errorf("signature envelope type %q has no raw bytes", envelope.Type)
+	typ, raw, err := canonicalSignatureEnvelope(envelope.Raw)
+	if err != nil {
+		return nil, err
+	}
+	if typ != envelope.Type {
+		return nil, fmt.Errorf("signature envelope type %q does not match raw %s signature", envelope.Type, typ)
+	}
+	return raw, nil
 }
 
 // bigIntToBytes converts a *big.Int to bytes, returning empty bytes for nil or 0.

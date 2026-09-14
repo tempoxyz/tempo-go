@@ -973,7 +973,9 @@ func withLegacyRecoveryIDEnvelope(t *testing.T, serialized string) string {
 	}
 
 	legacyEnvelope := append([]byte(nil), envelope...)
-	legacyEnvelope[64] += 27
+	if legacyEnvelope[64] < 27 {
+		legacyEnvelope[64] += 27
+	}
 	raw[signatureField] = legacyEnvelope
 
 	rawBytes, err := rlp.EncodeToBytes(raw)
@@ -1254,7 +1256,7 @@ func TestKeychainSignatureRoundtrip(t *testing.T) {
 	// Inner signature S (bytes 53-84)
 	copy(rawKeychainSig[53:85], common.Hex2Bytes("fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"))
 	// Inner signature yParity (byte 85)
-	rawKeychainSig[85] = 0x01
+	rawKeychainSig[85] = 28 // Canonical Rust wire encoding; YParity is still 1.
 
 	tx := &Tx{
 		ChainID:              big.NewInt(42424),

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"slices"
 	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -31,7 +32,7 @@ import (
 //	validAfter,                   // 9
 //	feeToken,                     // 10
 //	feePayerSignatureOrSender,    // 11 Signature [yParity, r, s] or "0x00" or empty
-//	authorizationList,            // 12 Empty array (reserved for EIP-7702)
+//	authorizationList,            // 12 Tempo EIP-7702 authorizations
 //	keyAuthorizationOrSignature,  // 13 (optional) keyAuthorization (list) or signatureEnvelope (bytes)
 //	maybeSignature,               // 14 (optional) signatureEnvelope when field 13 is keyAuthorization
 //
@@ -84,9 +85,10 @@ func Deserialize(serialized string) (*Tx, error) {
 	tx := New()
 
 	// Parse fields in order
-	// Field 0: chainId
+	// Field 0: chainId. Empty RLP means zero, not the constructor's default chain.
+	tx.ChainID = new(big.Int)
 	if chainID, ok := raw[0].([]byte); ok && len(chainID) > 0 {
-		tx.ChainID = new(big.Int).SetBytes(chainID)
+		tx.ChainID.SetBytes(chainID)
 	}
 
 	// Field 1: maxPriorityFeePerGas
@@ -161,6 +163,7 @@ func Deserialize(serialized string) (*Tx, error) {
 	// Field 10: feeToken
 	if feeToken, ok := raw[10].([]byte); ok && len(feeToken) > 0 {
 		tx.FeeToken = common.BytesToAddress(feeToken)
+		tx.FeeTokenSet = tx.FeeToken == (common.Address{})
 	}
 
 	// Field 11: feePayerSignatureOrSender
@@ -198,7 +201,11 @@ func Deserialize(serialized string) (*Tx, error) {
 			ErrInvalidTransaction, raw[11])
 	}
 
-	// Field 12: authorizationList (reserved for EIP-7702)
+	// Field 12: Tempo EIP-7702 authorizations must survive decoding and re-signing.
+	tx.AuthorizationList, err = decodeAuthorizations(raw[12])
+	if err != nil {
+		return nil, err
+	}
 
 	// Fields 13-14: keyAuthorization and/or signatureEnvelope.
 	// Field shape must be validated strictly to reject malformed trailing fields.
@@ -392,17 +399,6 @@ func decodeYParity(yParityBytes []byte, context string) (uint8, error) {
 	return yParity, nil
 }
 
-func decodeRecoveryID(recoveryID byte, context string) (uint8, error) {
-	switch recoveryID {
-	case 0, 1:
-		return recoveryID, nil
-	case 27, 28:
-		return recoveryID - 27, nil
-	default:
-		return 0, fmt.Errorf("invalid %s: must be 0, 1, 27, or 28, got %d", context, recoveryID)
-	}
-}
-
 // decodeSignature decodes a signature tuple [yParity, r, s].
 func decodeSignature(sigTuple []interface{}) (*signer.Signature, error) {
 	if len(sigTuple) != 3 {
@@ -445,70 +441,93 @@ func decodeSignature(sigTuple []interface{}) (*signer.Signature, error) {
 	return signer.NewSignature(r, s, yParity), nil
 }
 
-// decodeSignatureEnvelope decodes a signature envelope.
+// canonicalSignatureEnvelope validates raw envelope bytes and returns their type
+// together with the canonical wire form Rust would produce. The input is never
+// mutated; the returned slice aliases it when it is already canonical.
+//
 // Per Tempo Transaction spec, signature types are detected by length and type prefix:
-// - secp256k1: raw 65 bytes (r || s || recoveryID) - no type prefix
-// - keychain: 0x04 + user_address (20 bytes) + inner_sig (65 bytes) = 86 bytes
-// - p256: 0x01 + 129 bytes = 130 bytes
+// - secp256k1: raw 65 bytes (r || s || v) - no type prefix; v is 27/28 on the wire
+// - p256: 0x01 + 129 bytes = 130 bytes; the trailing pre-hash flag is a bool (0/1)
 // - webauthn: 0x02 + variable data (129-2049 bytes total)
+// - keychain: 0x03/0x04 + user_address (20 bytes) + primitive inner signature
+func canonicalSignatureEnvelope(raw []byte) (string, []byte, error) {
+	if len(raw) == 0 {
+		return "", nil, fmt.Errorf("signature envelope too short")
+	}
+
+	// secp256k1: exactly 65 bytes with no type prefix
+	if len(raw) == signer.SignatureLength {
+		yParity, err := signer.ParseRecoveryID(raw[64])
+		if err != nil {
+			return "", nil, fmt.Errorf("invalid recovery id in signature envelope: %w", err)
+		}
+		if v := 27 + yParity; raw[64] != v {
+			raw = append([]byte(nil), raw...)
+			raw[64] = v
+		}
+		return "secp256k1", raw, nil
+	}
+
+	switch raw[0] {
+	case 0x01:
+		if len(raw) != 130 {
+			return "", nil, fmt.Errorf("invalid P256 signature length: expected 130, got %d", len(raw))
+		}
+		// Rust decodes the pre-hash flag as a bool and re-encodes it as 0/1.
+		if raw[129] > 1 {
+			raw = append([]byte(nil), raw...)
+			raw[129] = 1
+		}
+		return "p256", raw, nil
+
+	case 0x02:
+		if len(raw) < 129 || len(raw) > 2049 {
+			return "", nil, fmt.Errorf("invalid WebAuthn signature length: got %d, expected 129-2049", len(raw))
+		}
+		return "webauthn", raw, nil
+
+	case 0x03, 0x04:
+		if len(raw) < 22 {
+			return "", nil, fmt.Errorf("invalid Keychain signature length: got %d", len(raw))
+		}
+		inner := raw[21:]
+		// Only primitive signatures may be nested in a keychain envelope.
+		if len(inner) != signer.SignatureLength && (inner[0] == 0x03 || inner[0] == 0x04) {
+			return "", nil, fmt.Errorf("invalid Keychain inner signature type")
+		}
+		_, canonicalInner, err := canonicalSignatureEnvelope(inner)
+		if err != nil {
+			return "", nil, fmt.Errorf("invalid Keychain inner signature: %w", err)
+		}
+		if !bytes.Equal(inner, canonicalInner) {
+			raw = slices.Concat(raw[:21], canonicalInner)
+		}
+		return "keychain", raw, nil
+
+	default:
+		return "", nil, fmt.Errorf("unknown signature type prefix: 0x%02x", raw[0])
+	}
+}
+
+// decodeSignatureEnvelope decodes a signature envelope into the public model.
+// secp256k1 signatures are parsed into R/S/YParity; other types keep their
+// canonical raw bytes.
 func decodeSignatureEnvelope(envelopeBytes []byte) (*signer.SignatureEnvelope, error) {
 	if len(envelopeBytes) == 0 {
 		return nil, nil
 	}
-
-	// secp256k1: exactly 65 bytes with no type prefix
-	if len(envelopeBytes) == 65 {
-		r := new(big.Int).SetBytes(envelopeBytes[0:32])
-		s := new(big.Int).SetBytes(envelopeBytes[32:64])
-		yParity, err := decodeRecoveryID(envelopeBytes[64], "recovery id in signature envelope")
+	typ, raw, err := canonicalSignatureEnvelope(envelopeBytes)
+	if err != nil {
+		return nil, err
+	}
+	if typ == "secp256k1" {
+		sig, err := signer.ParseSignatureBytes(raw)
 		if err != nil {
 			return nil, err
 		}
-
-		return &signer.SignatureEnvelope{
-			Type:      "secp256k1",
-			Signature: signer.NewSignature(r, s, yParity),
-		}, nil
+		return &signer.SignatureEnvelope{Type: typ, Signature: sig}, nil
 	}
-
-	// Check type prefix for other signature types
-	if len(envelopeBytes) < 1 {
-		return nil, fmt.Errorf("signature envelope too short")
-	}
-
-	typePrefix := envelopeBytes[0]
-
-	switch typePrefix {
-	case 0x01: // P256: 0x01 + 129 bytes = 130 bytes
-		if len(envelopeBytes) != 130 {
-			return nil, fmt.Errorf("invalid P256 signature length: expected 130, got %d", len(envelopeBytes))
-		}
-		return &signer.SignatureEnvelope{
-			Type: "p256",
-			Raw:  envelopeBytes,
-		}, nil
-
-	case 0x02: // WebAuthn: 0x02 + variable (129-2049 bytes total)
-		if len(envelopeBytes) < 129 || len(envelopeBytes) > 2049 {
-			return nil, fmt.Errorf("invalid WebAuthn signature length: got %d, expected 129-2049", len(envelopeBytes))
-		}
-		return &signer.SignatureEnvelope{
-			Type: "webauthn",
-			Raw:  envelopeBytes,
-		}, nil
-
-	case 0x04: // Keychain: 0x04 + user_address (20 bytes) + inner_sig (65 bytes) = 86 bytes
-		if len(envelopeBytes) != 86 {
-			return nil, fmt.Errorf("invalid Keychain signature length: expected 86, got %d", len(envelopeBytes))
-		}
-		return &signer.SignatureEnvelope{
-			Type: "keychain",
-			Raw:  envelopeBytes,
-		}, nil
-
-	default:
-		return nil, fmt.Errorf("unknown signature type prefix: 0x%02x", typePrefix)
-	}
+	return &signer.SignatureEnvelope{Type: typ, Raw: raw}, nil
 }
 
 // bytesToUint64 converts a byte slice to uint64, returning an error if it exceeds uint64 range.
