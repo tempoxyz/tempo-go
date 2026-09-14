@@ -145,10 +145,17 @@ func ParseKeychainSignature(sig []byte) (sigType byte, rootAccount common.Addres
 
 	rootAccount = common.BytesToAddress(sig[1:21])
 
+	parity := sig[85]
+	if parity == 27 || parity == 28 {
+		parity -= 27
+	}
+	if parity > 1 {
+		return 0, common.Address{}, nil, fmt.Errorf("invalid keychain recovery ID")
+	}
 	innerSig = signer.NewSignature(
 		byteSliceToBigInt(sig[21:53]), // R
 		byteSliceToBigInt(sig[53:85]), // S
-		sig[85],                       // YParity
+		parity,                        // YParity
 	)
 
 	return sigType, rootAccount, innerSig, nil

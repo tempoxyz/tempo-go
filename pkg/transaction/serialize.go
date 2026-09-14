@@ -99,14 +99,18 @@ func buildRLPList(tx *Tx, opts *SerializeOptions) ([]interface{}, error) {
 		uint64ToBytes(tx.Nonce),
 		uint64ToBytes(tx.ValidBefore),
 		uint64ToBytes(tx.ValidAfter),
-		encodeFeeTokenConditional(tx.FeeToken, skipFeeToken),
+		encodeTransactionFeeToken(tx, skipFeeToken),
 	)
 
 	// Field 11: feePayerSignatureOrSender
 	rlpList = append(rlpList, encodeFeePayerField(tx, opts))
 
-	// Field 12: authorizationList (empty for now)
-	rlpList = append(rlpList, []interface{}{})
+	// Field 12: Tempo EIP-7702 authorization list.
+	authorizations, err := encodeAuthorizations(tx.AuthorizationList)
+	if err != nil {
+		return nil, err
+	}
+	rlpList = append(rlpList, authorizations)
 
 	// Field 13 (optional): keyAuthorization
 	if tx.KeyAuthorization != nil {
@@ -123,6 +127,13 @@ func buildRLPList(tx *Tx, opts *SerializeOptions) ([]interface{}, error) {
 	}
 
 	return rlpList, nil
+}
+
+func encodeTransactionFeeToken(tx *Tx, skip bool) []byte {
+	if !skip && tx.FeeTokenSet {
+		return tx.FeeToken.Bytes()
+	}
+	return encodeFeeTokenConditional(tx.FeeToken, skip)
 }
 
 // encodeFeeToken encodes the fee token address.
@@ -343,14 +354,26 @@ func encodeSignatureEnvelope(envelope *signer.SignatureEnvelope) ([]byte, error)
 		result := make([]byte, 65)
 		copy(result[32-len(rBytes):32], rBytes)
 		copy(result[64-len(sBytes):64], sBytes)
-		result[64] = envelope.Signature.YParity
+		// Alloy's canonical 65-byte signature uses legacy recovery IDs (27/28).
+		// Keep YParity as 0/1 in the public signature model.
+		result[64] = envelope.Signature.YParity + 27
 
 		return result, nil
 	}
 
 	// keychain, p256, webauthn: use raw bytes directly (already includes type prefix)
 	if envelope.Raw != nil {
-		return envelope.Raw, nil
+		raw := append([]byte(nil), envelope.Raw...)
+		// Normalize a keychain's secp256k1 inner signature without changing the
+		// caller's buffer. P256 and WebAuthn envelopes have different layouts.
+		if len(raw) == 86 && (raw[0] == 3 || raw[0] == 4) {
+			parity, err := decodeRecoveryID(raw[85], "keychain recovery ID")
+			if err != nil {
+				return nil, err
+			}
+			raw[85] = parity + 27
+		}
+		return raw, nil
 	}
 
 	return nil, fmt.Errorf("signature envelope type %q has no raw bytes", envelope.Type)

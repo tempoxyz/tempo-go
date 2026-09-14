@@ -1,4 +1,11 @@
 .PHONY: build_examples clean test check fix help integration docs fuzz fuzz-all
+.PHONY: compatibility
+
+# Requires Rust stable and uv. Runs local Go/Rust codec comparisons through DFF.
+compatibility:
+	cd tests/differential && go build -o ../../bin/tempo-dff .
+	cargo +stable build --locked --manifest-path tests/differential/rust/Cargo.toml
+	uv run tests/differential/run.py
 
 # Default target
 all: check

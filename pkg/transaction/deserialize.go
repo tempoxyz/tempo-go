@@ -31,7 +31,7 @@ import (
 //	validAfter,                   // 9
 //	feeToken,                     // 10
 //	feePayerSignatureOrSender,    // 11 Signature [yParity, r, s] or "0x00" or empty
-//	authorizationList,            // 12 Empty array (reserved for EIP-7702)
+//	authorizationList,            // 12 Tempo EIP-7702 authorizations
 //	keyAuthorizationOrSignature,  // 13 (optional) keyAuthorization (list) or signatureEnvelope (bytes)
 //	maybeSignature,               // 14 (optional) signatureEnvelope when field 13 is keyAuthorization
 //
@@ -84,7 +84,8 @@ func Deserialize(serialized string) (*Tx, error) {
 	tx := New()
 
 	// Parse fields in order
-	// Field 0: chainId
+	// Field 0: chainId. Empty RLP means zero, not the constructor's default chain.
+	tx.ChainID.SetUint64(0)
 	if chainID, ok := raw[0].([]byte); ok && len(chainID) > 0 {
 		tx.ChainID = new(big.Int).SetBytes(chainID)
 	}
@@ -161,6 +162,7 @@ func Deserialize(serialized string) (*Tx, error) {
 	// Field 10: feeToken
 	if feeToken, ok := raw[10].([]byte); ok && len(feeToken) > 0 {
 		tx.FeeToken = common.BytesToAddress(feeToken)
+		tx.FeeTokenSet = tx.FeeToken == (common.Address{})
 	}
 
 	// Field 11: feePayerSignatureOrSender
@@ -198,7 +200,11 @@ func Deserialize(serialized string) (*Tx, error) {
 			ErrInvalidTransaction, raw[11])
 	}
 
-	// Field 12: authorizationList (reserved for EIP-7702)
+	// Field 12: Tempo EIP-7702 authorizations must survive decoding and re-signing.
+	tx.AuthorizationList, err = decodeAuthorizations(raw[12])
+	if err != nil {
+		return nil, err
+	}
 
 	// Fields 13-14: keyAuthorization and/or signatureEnvelope.
 	// Field shape must be validated strictly to reject malformed trailing fields.
@@ -497,9 +503,17 @@ func decodeSignatureEnvelope(envelopeBytes []byte) (*signer.SignatureEnvelope, e
 			Raw:  envelopeBytes,
 		}, nil
 
-	case 0x04: // Keychain: 0x04 + user_address (20 bytes) + inner_sig (65 bytes) = 86 bytes
-		if len(envelopeBytes) != 86 {
-			return nil, fmt.Errorf("invalid Keychain signature length: expected 86, got %d", len(envelopeBytes))
+	case 0x03, 0x04: // V1/V2 keychain wrapping a primitive signature.
+		if len(envelopeBytes) < 22 {
+			return nil, fmt.Errorf("invalid Keychain signature length: got %d", len(envelopeBytes))
+		}
+		inner := envelopeBytes[21:]
+		// Only primitive signatures may be nested in a keychain envelope.
+		if len(inner) != 65 && inner[0] != 0x01 && inner[0] != 0x02 {
+			return nil, fmt.Errorf("invalid Keychain inner signature type")
+		}
+		if _, err := decodeSignatureEnvelope(inner); err != nil {
+			return nil, fmt.Errorf("invalid Keychain inner signature: %w", err)
 		}
 		return &signer.SignatureEnvelope{
 			Type: "keychain",

@@ -17,11 +17,16 @@ type Tx struct {
 	Gas                  uint64         `json:"gas"`
 	Calls                []Call         `json:"calls"`
 	AccessList           AccessList     `json:"accessList"`
-	NonceKey             *big.Int       `json:"nonceKey"`    // 192-bit sequence key for 2D nonce system
+	NonceKey             *big.Int       `json:"nonceKey"`    // 256-bit sequence key for 2D nonce system
 	Nonce                uint64         `json:"nonce"`       // Current value of the sequence key
 	ValidBefore          uint64         `json:"validBefore"` // Optional expiration timestamp
 	ValidAfter           uint64         `json:"validAfter"`  // Optional activation timestamp
 	FeeToken             common.Address `json:"feeToken"`    // Stablecoin address for fees (e.g., AlphaUSD)
+	// FeeTokenSet distinguishes an explicitly selected zero address from no preference.
+	// Nonzero FeeToken values are always included, preserving existing callers.
+	FeeTokenSet bool `json:"-"`
+	// AuthorizationList contains Tempo EIP-7702 delegations, including AA signatures.
+	AuthorizationList []SignedAuthorization `json:"aaAuthorizationList,omitempty"`
 
 	// KeyAuthorization holds the decoded RLP keyAuthorization tuple for access key
 	// transactions. Preserved as-is for re-serialization. Nil when not present.
@@ -231,8 +236,13 @@ func (tx *Tx) Clone() *Tx {
 		ValidBefore:          tx.ValidBefore,
 		ValidAfter:           tx.ValidAfter,
 		FeeToken:             tx.FeeToken,
+		FeeTokenSet:          tx.FeeTokenSet,
 		AwaitingFeePayer:     tx.AwaitingFeePayer,
 		From:                 tx.From,
+	}
+	clone.AuthorizationList = make([]SignedAuthorization, len(tx.AuthorizationList))
+	for i, auth := range tx.AuthorizationList {
+		clone.AuthorizationList[i] = auth.Clone()
 	}
 
 	// Deep copy calls
