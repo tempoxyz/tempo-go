@@ -316,56 +316,28 @@ func encodeSignatureEnvelope(envelope *signer.SignatureEnvelope) ([]byte, error)
 		return []byte{}, nil
 	}
 
-	// secp256k1: raw 65 bytes (no type prefix)
+	// secp256k1: canonical 65 bytes r || s || v (no type prefix). The wire form
+	// uses legacy recovery IDs (27/28) like alloy; YParity stays 0/1 in the model.
 	if envelope.Type == "secp256k1" || envelope.Type == "" {
 		if envelope.Signature == nil {
 			return nil, fmt.Errorf("secp256k1 signature envelope has no parsed signature")
 		}
-		if envelope.Signature.R == nil || envelope.Signature.S == nil {
-			return nil, fmt.Errorf("secp256k1 signature envelope has nil R or S")
-		}
-		if envelope.Signature.R.Sign() < 0 || envelope.Signature.S.Sign() < 0 {
-			return nil, fmt.Errorf("secp256k1 signature envelope has negative R or S")
-		}
-
-		rBytes := envelope.Signature.R.Bytes()
-		if len(rBytes) > 32 {
-			return nil, fmt.Errorf("signature R exceeds 32 bytes: got %d", len(rBytes))
-		}
-
-		sBytes := envelope.Signature.S.Bytes()
-		if len(sBytes) > 32 {
-			return nil, fmt.Errorf("signature S exceeds 32 bytes: got %d", len(sBytes))
-		}
-
-		if envelope.Signature.YParity > 1 {
-			return nil, fmt.Errorf("invalid yParity: must be 0 or 1, got %d", envelope.Signature.YParity)
-		}
-
-		result := make([]byte, 65)
-		copy(result[32-len(rBytes):32], rBytes)
-		copy(result[64-len(sBytes):64], sBytes)
-		// Alloy's canonical 65-byte signature uses legacy recovery IDs (27/28).
-		// Keep YParity as 0/1 in the public signature model.
-		result[64] = envelope.Signature.V()
-
-		return result, nil
+		return envelope.Signature.Bytes()
 	}
 
-	// Parse raw envelopes once at the boundary so malformed bytes, type mismatches,
-	// and non-canonical nested values cannot leak into a signed transaction.
-	if envelope.Raw != nil {
-		parsed, err := decodeSignatureEnvelope(envelope.Raw)
-		if err != nil {
-			return nil, err
-		}
-		if parsed.Type != envelope.Type {
-			return nil, fmt.Errorf("signature envelope type %q does not match raw %s signature", envelope.Type, parsed.Type)
-		}
-		return parsed.Raw, nil
+	// Canonicalize raw envelopes at the boundary so malformed bytes, type
+	// mismatches, and non-canonical nested values cannot leak into a signed transaction.
+	if len(envelope.Raw) == 0 {
+		return nil, fmt.Errorf("signature envelope type %q has no raw bytes", envelope.Type)
 	}
-
-	return nil, fmt.Errorf("signature envelope type %q has no raw bytes", envelope.Type)
+	typ, raw, err := canonicalSignatureEnvelope(envelope.Raw)
+	if err != nil {
+		return nil, err
+	}
+	if typ != envelope.Type {
+		return nil, fmt.Errorf("signature envelope type %q does not match raw %s signature", envelope.Type, typ)
+	}
+	return raw, nil
 }
 
 // bigIntToBytes converts a *big.Int to bytes, returning empty bytes for nil or 0.

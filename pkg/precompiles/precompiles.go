@@ -8,9 +8,10 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"math/big"
 	"slices"
-	"sort"
+	"sync"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
@@ -39,14 +40,11 @@ var catalog = func() export {
 	return parsed
 }()
 
-var names = func() []string {
-	names := make([]string, 0, len(catalog.Contracts))
-	for name := range catalog.Contracts {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
-}()
+var names = slices.Sorted(maps.Keys(catalog.Contracts))
+
+// parsed caches one abi.ABI per interface for internal read-only use by Call.
+// Pack only reads the ABI, so sharing the cached value across goroutines is safe.
+var parsed sync.Map // name -> abi.ABI
 
 // Revision returns the Rust source commit used to generate these ABIs.
 func Revision() string { return catalog.Revision }
@@ -64,6 +62,19 @@ func ABI(name string) (abi.ABI, error) {
 	return abi.JSON(bytes.NewReader(c.ABI))
 }
 
+// cachedABI returns the shared parsed ABI for name, parsing it on first use.
+func cachedABI(name string) (abi.ABI, error) {
+	if v, ok := parsed.Load(name); ok {
+		return v.(abi.ABI), nil
+	}
+	contract, err := ABI(name)
+	if err != nil {
+		return abi.ABI{}, err
+	}
+	v, _ := parsed.LoadOrStore(name, contract)
+	return v.(abi.ABI), nil
+}
+
 // Address returns the fixed system address, if the interface has one. Token,
 // channel-reserve and zone interfaces require a deployment-specific address.
 func Address(name string) (common.Address, bool) {
@@ -78,10 +89,11 @@ func Address(name string) (common.Address, bool) {
 // explicitly so dynamic deployments and network-specific addresses are supported.
 // Overloaded function names follow go-ethereum ABI naming (name, name0, ...).
 func Call(name string, target common.Address, method string, args ...interface{}) (transaction.Call, error) {
+	// abi.Pack("") silently packs constructor inputs without a selector.
 	if method == "" {
 		return transaction.Call{}, fmt.Errorf("method name must not be empty")
 	}
-	contract, err := ABI(name)
+	contract, err := cachedABI(name)
 	if err != nil {
 		return transaction.Call{}, err
 	}

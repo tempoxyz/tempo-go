@@ -58,6 +58,15 @@ func process(method string, inputs [][]byte) ([]byte, error) {
 	return result, nil
 }
 
+// fakeSecp256k1 returns a canonical 65-byte fixture with the given parity.
+func fakeSecp256k1(parity byte) []byte {
+	sig, err := signer.NewSignature(big.NewInt(1), big.NewInt(2), parity).Bytes()
+	if err != nil {
+		panic(err)
+	}
+	return sig
+}
+
 // Generate codec-valid envelopes. Signature bytes are fixtures, not proof that
 // a node would accept them: execution and cryptographic verification are separate.
 func generate(seed int64) []byte {
@@ -114,10 +123,7 @@ func generate(seed int64) []byte {
 	if seed%4 < 2 {
 		inner := tx.Signature.Raw
 		if inner == nil {
-			inner = make([]byte, 65)
-			inner[31] = 1
-			inner[63] = 2
-			inner[64] = tx.Signature.Signature.YParity
+			inner = fakeSecp256k1(tx.Signature.Signature.YParity)
 		}
 		raw := append([]byte{byte(3 + seed%2)}, address().Bytes()...)
 		tx.Signature = &signer.SignatureEnvelope{Type: "keychain", Raw: append(raw, inner...)}
@@ -138,12 +144,8 @@ func generate(seed int64) []byte {
 		if seed%5 == 0 {
 			auth.WithWitness(common.BytesToHash(data(32))).WithAccount(address())
 		}
-		sig := make([]byte, 65)
-		sig[31] = 1
-		sig[63] = 2
-		sig[64] = 27
 		var err error
-		tx.KeyAuthorization, err = auth.BuildSigned(sig)
+		tx.KeyAuthorization, err = auth.BuildSigned(fakeSecp256k1(0))
 		if err != nil {
 			panic(err)
 		}

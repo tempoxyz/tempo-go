@@ -61,16 +61,7 @@ func (a *SignedAuthorization) Sign(s *signer.Signer) error {
 // Clone copies a delegation, retaining its independently signed authorization.
 func (a SignedAuthorization) Clone() SignedAuthorization {
 	a.ChainID = copyBigInt(a.ChainID)
-	if a.Signature != nil {
-		envelope := *a.Signature
-		envelope.Raw = append([]byte(nil), envelope.Raw...)
-		if envelope.Signature != nil {
-			sig := *envelope.Signature
-			sig.R, sig.S = copyBigInt(sig.R), copyBigInt(sig.S)
-			envelope.Signature = &sig
-		}
-		a.Signature = &envelope
-	}
+	a.Signature = a.Signature.Clone()
 	return a
 }
 
@@ -86,9 +77,6 @@ func encodeAuthorizations(list []SignedAuthorization) ([]interface{}, error) {
 		sig, err := encodeSignatureEnvelope(auth.Signature)
 		if err != nil {
 			return nil, fmt.Errorf("authorization %d: %w", i, err)
-		}
-		if len(sig) == 0 {
-			return nil, fmt.Errorf("authorization %d: empty signature", i)
 		}
 		result[i] = []interface{}{auth.ChainID, auth.Address, auth.Nonce, sig}
 	}
@@ -110,7 +98,7 @@ func decodeAuthorizations(raw interface{}) ([]SignedAuthorization, error) {
 			return nil, fmt.Errorf("authorization %d: expected four fields", i)
 		}
 		chain, ok := fields[0].([]byte)
-		if !ok || len(chain) > 32 || (len(chain) > 0 && chain[0] == 0) {
+		if !ok || len(chain) > 32 || !isCanonicalUint(chain) {
 			return nil, fmt.Errorf("authorization %d: invalid chain ID", i)
 		}
 		address, ok := fields[1].([]byte)
@@ -118,7 +106,7 @@ func decodeAuthorizations(raw interface{}) ([]SignedAuthorization, error) {
 			return nil, fmt.Errorf("authorization %d: invalid address", i)
 		}
 		nonceBytes, ok := fields[2].([]byte)
-		if !ok || (len(nonceBytes) > 0 && nonceBytes[0] == 0) {
+		if !ok || !isCanonicalUint(nonceBytes) {
 			return nil, fmt.Errorf("authorization %d: invalid nonce", i)
 		}
 		nonce, err := bytesToUint64(nonceBytes)
@@ -136,4 +124,10 @@ func decodeAuthorizations(raw interface{}) ([]SignedAuthorization, error) {
 		result[i] = SignedAuthorization{ChainID: new(big.Int).SetBytes(chain), Address: common.BytesToAddress(address), Nonce: nonce, Signature: envelope}
 	}
 	return result, nil
+}
+
+// isCanonicalUint reports whether b is a minimal big-endian RLP integer
+// (no leading zero bytes). Rust rejects non-canonical integers, so Go must too.
+func isCanonicalUint(b []byte) bool {
+	return len(b) == 0 || b[0] != 0
 }

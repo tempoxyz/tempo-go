@@ -9,12 +9,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRustSelectors(t *testing.T) {
-	require.Len(t, Names(), 19)
+func TestNamesReturnsCopy(t *testing.T) {
 	names := Names()
 	names[0] = "mutated"
 	require.NotEqual(t, "mutated", Names()[0])
-	methods, events, errors := 0, 0, 0
+}
+
+func TestRustSelectors(t *testing.T) {
+	require.Len(t, Names(), 19)
 	for _, name := range Names() {
 		contract, err := ABI(name)
 		require.NoError(t, err, name)
@@ -22,11 +24,9 @@ func TestRustSelectors(t *testing.T) {
 		for _, method := range contract.Methods {
 			require.Equal(t, catalog.Contracts[name].Selectors[method.Sig], hex.EncodeToString(method.ID), name+"."+method.Sig)
 		}
-		methods += len(contract.Methods)
-		events += len(contract.Events)
-		errors += len(contract.Errors)
 	}
-	t.Logf("verified %d Rust function selectors, loaded %d events and %d errors", methods, events, errors)
+	_, err := ABI("missing")
+	require.Error(t, err)
 }
 
 func TestCall(t *testing.T) {
@@ -38,10 +38,14 @@ func TestCall(t *testing.T) {
 	require.Equal(t, "a9059cbb", hex.EncodeToString(call.Data[:4]))
 	require.Len(t, call.Data, 68)
 	require.Zero(t, call.Value.Sign())
+
 	_, err = Call("ITIP20", target, "")
 	require.Error(t, err)
-	_, err = ABI("missing")
+	_, err = Call("missing", target, "transfer")
 	require.Error(t, err)
+}
+
+func TestAddress(t *testing.T) {
 	_, fixed := Address("ITIP20")
 	require.False(t, fixed)
 	address, fixed := Address("INonce")

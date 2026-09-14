@@ -8,6 +8,18 @@ import subprocess
 import tempfile
 import time
 
+# Upstream DFF listens on a fixed Unix socket path.
+DFF_SOCKET = pathlib.Path("/tmp/dff")
+
+
+def wait_for(condition, process, message, timeout=15):
+    """Poll until condition() holds; fail if process exits or timeout elapses."""
+    deadline = time.monotonic() + timeout
+    while not condition():
+        if process.poll() is not None or time.monotonic() > deadline:
+            raise RuntimeError(message)
+        time.sleep(0.05)
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -30,7 +42,7 @@ def main():
             first = next((i + 1 for i, pair in enumerate(pairs) if pair[0] != pair[1]), "length")
             raise RuntimeError(f"deterministic corpus mismatch at seed {first}")
         print(f"PASS: {args.cases} deterministic Go/Rust encoding and signing-domain comparisons", flush=True)
-        if pathlib.Path("/tmp/dff").exists():
+        if DFF_SOCKET.exists():
             raise RuntimeError("DFF's fixed socket already exists; use an isolated host")
         # Preserve logs/findings for inspection, including failed runs.
         directory = pathlib.Path(tempfile.mkdtemp(prefix="tempo-go-dff-"))
@@ -46,17 +58,13 @@ def main():
                 logs.append(log)
                 processes.append(subprocess.Popen(command, cwd=directory, stdout=log, stderr=subprocess.STDOUT))
                 if name == "server":
-                    deadline = time.monotonic() + 15
-                    while not pathlib.Path("/tmp/dff").exists():
-                        if processes[0].poll() is not None or time.monotonic() > deadline:
-                            raise RuntimeError("DFF server did not start; inspect server.log")
-                        time.sleep(0.05)
-                else:
-                    deadline = time.monotonic() + 15
-                    while not (directory / f"{name}.ready").exists() or f"Registered new client: {name}" not in (directory / "server.log").read_text():
-                        if processes[-1].poll() is not None or time.monotonic() > deadline:
-                            raise RuntimeError(f"DFF {name} client did not register")
-                        time.sleep(0.05)
+                    wait_for(DFF_SOCKET.exists, processes[0], "DFF server did not start; inspect server.log")
+                    continue
+
+                def registered(client=name):
+                    return (directory / f"{client}.ready").exists() and f"Registered new client: {client}" in (directory / "server.log").read_text()
+
+                wait_for(registered, processes[-1], f"DFF {name} client did not register")
             deadline = time.monotonic() + args.seconds
             while time.monotonic() < deadline:
                 if any(p.poll() is not None for p in processes):

@@ -146,6 +146,89 @@ func (s *Signature) V() uint8 {
 	return 27 + s.YParity
 }
 
+// SignatureLength is the size of a canonical secp256k1 wire signature (r || s || v).
+const SignatureLength = 65
+
+// ParseRecoveryID maps a wire recovery byte to a 0/1 YParity. Both the raw
+// parity (0/1) and the legacy form (27/28) are accepted.
+func ParseRecoveryID(recoveryID byte) (uint8, error) {
+	switch recoveryID {
+	case 0, 1:
+		return recoveryID, nil
+	case 27, 28:
+		return recoveryID - 27, nil
+	default:
+		return 0, fmt.Errorf("%w: recovery id must be 0, 1, 27, or 28, got %d", ErrInvalidSignature, recoveryID)
+	}
+}
+
+// Bytes returns the canonical 65-byte wire form r || s || v, where v is the
+// legacy recovery ID (27/28) used by Rust's alloy signatures. It validates that
+// R and S are non-nil, non-negative 256-bit scalars and that YParity is 0 or 1.
+func (s *Signature) Bytes() ([]byte, error) {
+	if s == nil || s.R == nil || s.S == nil {
+		return nil, fmt.Errorf("%w: signature and its R/S components must be non-nil", ErrInvalidSignature)
+	}
+	if s.R.Sign() < 0 || s.S.Sign() < 0 {
+		return nil, fmt.Errorf("%w: R and S must be non-negative", ErrInvalidSignature)
+	}
+	if l := len(s.R.Bytes()); l > maxScalarBytes {
+		return nil, fmt.Errorf("%w: R exceeds %d bytes (got %d)", ErrInvalidSignature, maxScalarBytes, l)
+	}
+	if l := len(s.S.Bytes()); l > maxScalarBytes {
+		return nil, fmt.Errorf("%w: S exceeds %d bytes (got %d)", ErrInvalidSignature, maxScalarBytes, l)
+	}
+	if s.YParity > 1 {
+		return nil, fmt.Errorf("%w: invalid yParity: must be 0 or 1, got %d", ErrInvalidSignature, s.YParity)
+	}
+	out := make([]byte, SignatureLength)
+	s.R.FillBytes(out[0:32])
+	s.S.FillBytes(out[32:64])
+	out[64] = s.V()
+	return out, nil
+}
+
+// ParseSignatureBytes decodes a 65-byte wire signature r || s || v into the
+// public model, accepting either 0/1 or 27/28 for v.
+func ParseSignatureBytes(b []byte) (*Signature, error) {
+	if len(b) != SignatureLength {
+		return nil, fmt.Errorf("%w: expected %d bytes, got %d", ErrInvalidSignature, SignatureLength, len(b))
+	}
+	yParity, err := ParseRecoveryID(b[64])
+	if err != nil {
+		return nil, err
+	}
+	return NewSignature(new(big.Int).SetBytes(b[0:32]), new(big.Int).SetBytes(b[32:64]), yParity), nil
+}
+
+// Clone returns a deep copy of the signature.
+func (s *Signature) Clone() *Signature {
+	if s == nil {
+		return nil
+	}
+	clone := *s
+	if s.R != nil {
+		clone.R = new(big.Int).Set(s.R)
+	}
+	if s.S != nil {
+		clone.S = new(big.Int).Set(s.S)
+	}
+	return &clone
+}
+
+// Clone returns a deep copy of the envelope.
+func (e *SignatureEnvelope) Clone() *SignatureEnvelope {
+	if e == nil {
+		return nil
+	}
+	clone := *e
+	clone.Signature = e.Signature.Clone()
+	if e.Raw != nil {
+		clone.Raw = append([]byte(nil), e.Raw...)
+	}
+	return &clone
+}
+
 // SignatureEnvelope wraps a signature with its type.
 // Supports secp256k1, p256, webauthn, and keychain signatures.
 type SignatureEnvelope struct {

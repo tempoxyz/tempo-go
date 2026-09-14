@@ -1,7 +1,9 @@
 package transaction
 
 import (
+	"fmt"
 	"math/big"
+	"slices"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -11,12 +13,23 @@ import (
 	"github.com/tempoxyz/tempo-go/pkg/signer"
 )
 
-func TestAuthorizationSigningAndRoundtrip(t *testing.T) {
+// signedAuthorization returns a chain-agnostic delegation signed by a fresh key.
+func signedAuthorization(t *testing.T) (SignedAuthorization, *signer.Signer) {
+	t.Helper()
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
 	s := signer.NewSignerFromKey(key)
 	a := SignedAuthorization{ChainID: new(big.Int), Address: common.HexToAddress("0x1234"), Nonce: 7}
 	require.NoError(t, a.Sign(s))
+	return a, s
+}
+
+func txWithAuthorization(a SignedAuthorization) *Tx {
+	return NewBuilder().SetGas(100000).AddCall(a.Address, nil, nil).SetAuthorizationList([]SignedAuthorization{a}).Build()
+}
+
+func TestAuthorizationSignatureHash(t *testing.T) {
+	a, s := signedAuthorization(t)
 	hash, err := a.SignatureHash()
 	require.NoError(t, err)
 	recovered, err := signer.RecoverAddress(hash, a.Signature.Signature)
@@ -26,7 +39,11 @@ func TestAuthorizationSigningAndRoundtrip(t *testing.T) {
 	payload, err := rlp.EncodeToBytes([]interface{}{uint64(0), a.Address, uint64(7)})
 	require.NoError(t, err)
 	require.Equal(t, crypto.Keccak256Hash([]byte{5}, payload), hash)
-	tx := NewBuilder().SetGas(100000).AddCall(a.Address, nil, nil).SetAuthorizationList([]SignedAuthorization{a}).Build()
+}
+
+func TestAuthorizationRoundtrip(t *testing.T) {
+	a, s := signedAuthorization(t)
+	tx := txWithAuthorization(a)
 	require.NoError(t, SignTransaction(tx, s))
 	encoded, err := Serialize(tx, nil)
 	require.NoError(t, err)
@@ -36,6 +53,11 @@ func TestAuthorizationSigningAndRoundtrip(t *testing.T) {
 	reencoded, err := Serialize(decoded, nil)
 	require.NoError(t, err)
 	require.Equal(t, encoded, reencoded)
+}
+
+func TestAuthorizationCloneIsolation(t *testing.T) {
+	a, _ := signedAuthorization(t)
+	tx := txWithAuthorization(a)
 	before, err := GetSignPayload(tx)
 	require.NoError(t, err)
 	clone := tx.Clone()
@@ -75,18 +97,26 @@ func TestDecodeZeroChainID(t *testing.T) {
 }
 
 func TestKeychainPrimitiveEnvelopes(t *testing.T) {
+	inners := []struct {
+		name string
+		raw  []byte
+	}{
+		{"secp256k1", append(make([]byte, 64), 27)},
+		{"p256", append([]byte{1}, make([]byte, 129)...)},
+		{"webauthn-min", append([]byte{2}, make([]byte, 128)...)},
+		{"webauthn-max", append([]byte{2}, make([]byte, 2048)...)},
+	}
 	for _, version := range []byte{3, 4} {
-		for _, inner := range [][]byte{make([]byte, 65), append([]byte{1}, make([]byte, 129)...), append([]byte{2}, make([]byte, 128)...), append([]byte{2}, make([]byte, 2048)...)} {
-			if len(inner) == 65 {
-				inner[64] = 27
-			}
-			raw := append(append([]byte{version}, make([]byte, 20)...), inner...)
-			decoded, err := decodeSignatureEnvelope(raw)
-			require.NoError(t, err)
-			require.Equal(t, "keychain", decoded.Type)
-			again, err := encodeSignatureEnvelope(decoded)
-			require.NoError(t, err)
-			require.Equal(t, raw, again)
+		for _, inner := range inners {
+			t.Run(fmt.Sprintf("v%d/%s", version, inner.name), func(t *testing.T) {
+				raw := slices.Concat([]byte{version}, make([]byte, 20), inner.raw)
+				decoded, err := decodeSignatureEnvelope(raw)
+				require.NoError(t, err)
+				require.Equal(t, "keychain", decoded.Type)
+				again, err := encodeSignatureEnvelope(decoded)
+				require.NoError(t, err)
+				require.Equal(t, raw, again)
+			})
 		}
 	}
 }
@@ -99,14 +129,20 @@ func TestSignatureEnvelopeCanonicalizationAndValidation(t *testing.T) {
 	require.Equal(t, byte(1), decoded.Raw[129])
 	require.Equal(t, byte(7), p256[129], "must not mutate caller-owned signature")
 
-	keychain := append(append([]byte{4}, make([]byte, 20)...), make([]byte, 65)...)
+	keychain := slices.Concat([]byte{4}, make([]byte, 20), make([]byte, 65))
 	keychain[85] = 1
 	decoded, err = decodeSignatureEnvelope(keychain)
 	require.NoError(t, err)
 	require.Equal(t, byte(28), decoded.Raw[85])
 	require.Equal(t, byte(1), keychain[85], "must not mutate caller-owned signature")
 
+	nested := slices.Concat([]byte{4}, make([]byte, 20), keychain)
+	_, err = decodeSignatureEnvelope(nested)
+	require.ErrorContains(t, err, "inner signature type")
+
 	_, err = encodeSignatureEnvelope(&signer.SignatureEnvelope{Type: "p256", Raw: keychain})
+	require.Error(t, err)
+	_, err = encodeSignatureEnvelope(&signer.SignatureEnvelope{Type: "p256", Raw: []byte{}})
 	require.Error(t, err)
 	for _, sig := range []*signer.Signature{
 		signer.NewSignature(nil, big.NewInt(1), 0),

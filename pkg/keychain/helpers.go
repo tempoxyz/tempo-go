@@ -12,11 +12,6 @@ import (
 // GetRemainingLimitSelector is the function selector for getRemainingLimit(address,address,address).
 const GetRemainingLimitSelector = "0x63b4290d"
 
-// byteSliceToBigInt converts a byte slice to a big.Int.
-func byteSliceToBigInt(b []byte) *big.Int {
-	return new(big.Int).SetBytes(b)
-}
-
 // EncodeGetRemainingLimitCalldata encodes the calldata for getRemainingLimit(address,address,address).
 //
 // Parameters:
