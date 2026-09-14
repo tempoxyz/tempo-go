@@ -67,6 +67,5 @@ build/
 vendor/
 /tests/differential/rust/target/
 /tests/differential/findings/
-/tests/differential/*.ready
 docs/
 examples/feepayer/fee-payer-server

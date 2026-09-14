@@ -99,7 +99,7 @@ func buildRLPList(tx *Tx, opts *SerializeOptions) ([]interface{}, error) {
 		uint64ToBytes(tx.Nonce),
 		uint64ToBytes(tx.ValidBefore),
 		uint64ToBytes(tx.ValidAfter),
-		encodeTransactionFeeToken(tx, skipFeeToken),
+		encodeFeeToken(tx, skipFeeToken),
 	)
 
 	// Field 11: feePayerSignatureOrSender
@@ -129,30 +129,15 @@ func buildRLPList(tx *Tx, opts *SerializeOptions) ([]interface{}, error) {
 	return rlpList, nil
 }
 
-func encodeTransactionFeeToken(tx *Tx, skip bool) []byte {
-	if !skip && tx.FeeTokenSet {
-		return tx.FeeToken.Bytes()
-	}
-	return encodeFeeTokenConditional(tx.FeeToken, skip)
-}
-
-// encodeFeeToken encodes the fee token address.
-// Returns empty bytes if the address is zero (native token).
-func encodeFeeToken(token common.Address) []byte {
-	if token != (common.Address{}) {
-		return token.Bytes()
-	}
-	return []byte{}
-}
-
-// encodeFeeTokenConditional encodes the fee token, optionally skipping it.
+// encodeFeeToken encodes the fee-token preference, preserving an explicitly
+// selected zero address while leaving an omitted preference empty.
 // Per Tempo spec, fee_token is skipped (encoded as 0x80/empty) when fee payer is involved
 // in the sender's signing payload, allowing the fee payer to specify the fee token.
-func encodeFeeTokenConditional(token common.Address, skip bool) []byte {
-	if skip {
-		return []byte{}
+func encodeFeeToken(tx *Tx, skip bool) []byte {
+	if skip || (!tx.FeeTokenSet && tx.FeeToken == (common.Address{})) {
+		return nil
 	}
-	return encodeFeeToken(token)
+	return tx.FeeToken.Bytes()
 }
 
 // encodeFeePayerField encodes field 11 (feePayerSignatureOrSender).
@@ -336,6 +321,12 @@ func encodeSignatureEnvelope(envelope *signer.SignatureEnvelope) ([]byte, error)
 		if envelope.Signature == nil {
 			return nil, fmt.Errorf("secp256k1 signature envelope has no parsed signature")
 		}
+		if envelope.Signature.R == nil || envelope.Signature.S == nil {
+			return nil, fmt.Errorf("secp256k1 signature envelope has nil R or S")
+		}
+		if envelope.Signature.R.Sign() < 0 || envelope.Signature.S.Sign() < 0 {
+			return nil, fmt.Errorf("secp256k1 signature envelope has negative R or S")
+		}
 
 		rBytes := envelope.Signature.R.Bytes()
 		if len(rBytes) > 32 {
@@ -356,24 +347,22 @@ func encodeSignatureEnvelope(envelope *signer.SignatureEnvelope) ([]byte, error)
 		copy(result[64-len(sBytes):64], sBytes)
 		// Alloy's canonical 65-byte signature uses legacy recovery IDs (27/28).
 		// Keep YParity as 0/1 in the public signature model.
-		result[64] = envelope.Signature.YParity + 27
+		result[64] = envelope.Signature.V()
 
 		return result, nil
 	}
 
-	// keychain, p256, webauthn: use raw bytes directly (already includes type prefix)
+	// Parse raw envelopes once at the boundary so malformed bytes, type mismatches,
+	// and non-canonical nested values cannot leak into a signed transaction.
 	if envelope.Raw != nil {
-		raw := append([]byte(nil), envelope.Raw...)
-		// Normalize a keychain's secp256k1 inner signature without changing the
-		// caller's buffer. P256 and WebAuthn envelopes have different layouts.
-		if len(raw) == 86 && (raw[0] == 3 || raw[0] == 4) {
-			parity, err := decodeRecoveryID(raw[85], "keychain recovery ID")
-			if err != nil {
-				return nil, err
-			}
-			raw[85] = parity + 27
+		parsed, err := decodeSignatureEnvelope(envelope.Raw)
+		if err != nil {
+			return nil, err
 		}
-		return raw, nil
+		if parsed.Type != envelope.Type {
+			return nil, fmt.Errorf("signature envelope type %q does not match raw %s signature", envelope.Type, parsed.Type)
+		}
+		return parsed.Raw, nil
 	}
 
 	return nil, fmt.Errorf("signature envelope type %q has no raw bytes", envelope.Type)

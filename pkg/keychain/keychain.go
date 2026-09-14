@@ -39,6 +39,12 @@ func BuildKeychainSignature(innerSig *signer.Signature, rootAccount common.Addre
 	if innerSig == nil || innerSig.R == nil || innerSig.S == nil {
 		return nil, fmt.Errorf("inner signature and its R/S components must be non-nil")
 	}
+	if innerSig.R.Sign() < 0 || innerSig.S.Sign() < 0 {
+		return nil, fmt.Errorf("inner signature R/S components must be non-negative")
+	}
+	if innerSig.YParity > 1 {
+		return nil, fmt.Errorf("inner signature yParity must be 0 or 1")
+	}
 	if l := len(innerSig.R.Bytes()); l > 32 {
 		return nil, fmt.Errorf("inner signature R exceeds 32 bytes (got %d)", l)
 	}
@@ -60,8 +66,8 @@ func BuildKeychainSignature(innerSig *signer.Signature, rootAccount common.Addre
 	// Bytes 53-84: S (left-padded to 32 bytes)
 	innerSig.S.FillBytes(result[53:85])
 
-	// Byte 85: V (yParity)
-	result[85] = innerSig.YParity
+	// Byte 85: canonical legacy recovery ID (27 or 28).
+	result[85] = innerSig.V()
 
 	return result, nil
 }

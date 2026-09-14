@@ -22,9 +22,7 @@ jobs:
       with:
         go-version: '1.25.x'
     - name: Set up Rust
-      run: |
-        rustup toolchain install stable nightly --profile minimal
-        rustup default nightly
+      run: rustup toolchain install stable --profile minimal
     - name: Build pinned implementations
       run: |
         (cd tests/differential && go build -o ../../bin/tempo-dff .)

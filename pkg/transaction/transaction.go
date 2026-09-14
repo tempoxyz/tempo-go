@@ -184,6 +184,17 @@ func (tx *Tx) Validate() error {
 		if call.Value == nil {
 			return fmt.Errorf("%w: call %d has nil value", ErrInvalidTransaction, i)
 		}
+		if i > 0 && call.To == nil {
+			return fmt.Errorf("%w: only the first call may create a contract", ErrInvalidTransaction)
+		}
+	}
+
+	if len(tx.AuthorizationList) > 0 && tx.Calls[0].To == nil {
+		return fmt.Errorf("%w: contract creation is not allowed with an authorization list", ErrInvalidTransaction)
+	}
+
+	if tx.ValidBefore != 0 && tx.ValidAfter != 0 && tx.ValidBefore <= tx.ValidAfter {
+		return fmt.Errorf("%w: validBefore must be greater than validAfter", ErrInvalidTransaction)
 	}
 
 	if tx.NonceKey == nil {
@@ -240,9 +251,11 @@ func (tx *Tx) Clone() *Tx {
 		AwaitingFeePayer:     tx.AwaitingFeePayer,
 		From:                 tx.From,
 	}
-	clone.AuthorizationList = make([]SignedAuthorization, len(tx.AuthorizationList))
-	for i, auth := range tx.AuthorizationList {
-		clone.AuthorizationList[i] = auth.Clone()
+	if tx.AuthorizationList != nil {
+		clone.AuthorizationList = make([]SignedAuthorization, len(tx.AuthorizationList))
+		for i, auth := range tx.AuthorizationList {
+			clone.AuthorizationList[i] = auth.Clone()
+		}
 	}
 
 	// Deep copy calls

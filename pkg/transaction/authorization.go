@@ -23,14 +23,21 @@ type SignedAuthorization struct {
 // SignatureHash returns keccak256(0x05 || rlp([chainId, address, nonce])).
 // Chain ID zero authorizes delegation on any chain, as in EIP-7702.
 func (a SignedAuthorization) SignatureHash() (common.Hash, error) {
-	if a.ChainID == nil || a.ChainID.Sign() < 0 || a.ChainID.BitLen() > 256 {
-		return common.Hash{}, fmt.Errorf("authorization chain ID must be an unsigned 256-bit integer")
+	if err := validateAuthorizationChainID(a.ChainID); err != nil {
+		return common.Hash{}, err
 	}
 	payload, err := rlp.EncodeToBytes([]interface{}{a.ChainID, a.Address, a.Nonce})
 	if err != nil {
 		return common.Hash{}, err
 	}
 	return crypto.Keccak256Hash([]byte{0x05}, payload), nil
+}
+
+func validateAuthorizationChainID(chainID *big.Int) error {
+	if chainID == nil || chainID.Sign() < 0 || chainID.BitLen() > 256 {
+		return fmt.Errorf("authorization chain ID must be an unsigned 256-bit integer")
+	}
+	return nil
 }
 
 // Sign signs a delegation with a secp256k1 key. Other signers can set Signature
@@ -70,14 +77,11 @@ func (a SignedAuthorization) Clone() SignedAuthorization {
 func encodeAuthorizations(list []SignedAuthorization) ([]interface{}, error) {
 	result := make([]interface{}, len(list))
 	for i, auth := range list {
-		if _, err := auth.SignatureHash(); err != nil {
+		if err := validateAuthorizationChainID(auth.ChainID); err != nil {
 			return nil, fmt.Errorf("authorization %d: %w", i, err)
 		}
 		if auth.Signature == nil {
 			return nil, fmt.Errorf("authorization %d: missing signature", i)
-		}
-		if sig := auth.Signature.Signature; sig != nil && (sig.R == nil || sig.S == nil || sig.R.Sign() < 0 || sig.S.Sign() < 0) {
-			return nil, fmt.Errorf("authorization %d: invalid signature scalars", i)
 		}
 		sig, err := encodeSignatureEnvelope(auth.Signature)
 		if err != nil {
@@ -85,9 +89,6 @@ func encodeAuthorizations(list []SignedAuthorization) ([]interface{}, error) {
 		}
 		if len(sig) == 0 {
 			return nil, fmt.Errorf("authorization %d: empty signature", i)
-		}
-		if _, err := decodeSignatureEnvelope(sig); err != nil {
-			return nil, fmt.Errorf("authorization %d: %w", i, err)
 		}
 		result[i] = []interface{}{auth.ChainID, auth.Address, auth.Nonce, sig}
 	}
@@ -116,9 +117,13 @@ func decodeAuthorizations(raw interface{}) ([]SignedAuthorization, error) {
 		if !ok || len(address) != common.AddressLength {
 			return nil, fmt.Errorf("authorization %d: invalid address", i)
 		}
-		nonce, ok := fields[2].([]byte)
-		if !ok || len(nonce) > 8 || (len(nonce) > 0 && nonce[0] == 0) {
+		nonceBytes, ok := fields[2].([]byte)
+		if !ok || (len(nonceBytes) > 0 && nonceBytes[0] == 0) {
 			return nil, fmt.Errorf("authorization %d: invalid nonce", i)
+		}
+		nonce, err := bytesToUint64(nonceBytes)
+		if err != nil {
+			return nil, fmt.Errorf("authorization %d: invalid nonce: %w", i, err)
 		}
 		sig, ok := fields[3].([]byte)
 		if !ok || len(sig) == 0 {
@@ -128,7 +133,7 @@ func decodeAuthorizations(raw interface{}) ([]SignedAuthorization, error) {
 		if err != nil {
 			return nil, fmt.Errorf("authorization %d: %w", i, err)
 		}
-		result[i] = SignedAuthorization{ChainID: new(big.Int).SetBytes(chain), Address: common.BytesToAddress(address), Nonce: new(big.Int).SetBytes(nonce).Uint64(), Signature: envelope}
+		result[i] = SignedAuthorization{ChainID: new(big.Int).SetBytes(chain), Address: common.BytesToAddress(address), Nonce: nonce, Signature: envelope}
 	}
 	return result, nil
 }

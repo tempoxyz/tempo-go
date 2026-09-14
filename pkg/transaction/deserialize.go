@@ -85,9 +85,9 @@ func Deserialize(serialized string) (*Tx, error) {
 
 	// Parse fields in order
 	// Field 0: chainId. Empty RLP means zero, not the constructor's default chain.
-	tx.ChainID.SetUint64(0)
+	tx.ChainID = new(big.Int)
 	if chainID, ok := raw[0].([]byte); ok && len(chainID) > 0 {
-		tx.ChainID = new(big.Int).SetBytes(chainID)
+		tx.ChainID.SetBytes(chainID)
 	}
 
 	// Field 1: maxPriorityFeePerGas
@@ -489,9 +489,14 @@ func decodeSignatureEnvelope(envelopeBytes []byte) (*signer.SignatureEnvelope, e
 		if len(envelopeBytes) != 130 {
 			return nil, fmt.Errorf("invalid P256 signature length: expected 130, got %d", len(envelopeBytes))
 		}
+		raw := envelopeBytes
+		if raw[129] > 1 {
+			raw = append([]byte(nil), raw...)
+			raw[129] = 1
+		}
 		return &signer.SignatureEnvelope{
 			Type: "p256",
-			Raw:  envelopeBytes,
+			Raw:  raw,
 		}, nil
 
 	case 0x02: // WebAuthn: 0x02 + variable (129-2049 bytes total)
@@ -509,15 +514,29 @@ func decodeSignatureEnvelope(envelopeBytes []byte) (*signer.SignatureEnvelope, e
 		}
 		inner := envelopeBytes[21:]
 		// Only primitive signatures may be nested in a keychain envelope.
-		if len(inner) != 65 && inner[0] != 0x01 && inner[0] != 0x02 {
-			return nil, fmt.Errorf("invalid Keychain inner signature type")
+		if len(inner) != 65 {
+			switch inner[0] {
+			case 0x01, 0x02:
+			default:
+				return nil, fmt.Errorf("invalid Keychain inner signature type")
+			}
 		}
-		if _, err := decodeSignatureEnvelope(inner); err != nil {
+		innerEnvelope, err := decodeSignatureEnvelope(inner)
+		if err != nil {
 			return nil, fmt.Errorf("invalid Keychain inner signature: %w", err)
+		}
+		canonicalInner, err := encodeSignatureEnvelope(innerEnvelope)
+		if err != nil {
+			return nil, fmt.Errorf("invalid Keychain inner signature: %w", err)
+		}
+		raw := envelopeBytes
+		if !bytes.Equal(inner, canonicalInner) {
+			raw = append([]byte(nil), envelopeBytes...)
+			raw = append(raw[:21], canonicalInner...)
 		}
 		return &signer.SignatureEnvelope{
 			Type: "keychain",
-			Raw:  envelopeBytes,
+			Raw:  raw,
 		}, nil
 
 	default:

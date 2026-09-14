@@ -11,6 +11,9 @@ import (
 
 func TestRustSelectors(t *testing.T) {
 	require.Len(t, Names(), 19)
+	names := Names()
+	names[0] = "mutated"
+	require.NotEqual(t, "mutated", Names()[0])
 	methods, events, errors := 0, 0, 0
 	for _, name := range Names() {
 		contract, err := ABI(name)
@@ -35,6 +38,8 @@ func TestCall(t *testing.T) {
 	require.Equal(t, "a9059cbb", hex.EncodeToString(call.Data[:4]))
 	require.Len(t, call.Data, 68)
 	require.Zero(t, call.Value.Sign())
+	_, err = Call("ITIP20", target, "")
+	require.Error(t, err)
 	_, err = ABI("missing")
 	require.Error(t, err)
 	_, fixed := Address("ITIP20")

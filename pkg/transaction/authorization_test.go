@@ -91,6 +91,53 @@ func TestKeychainPrimitiveEnvelopes(t *testing.T) {
 	}
 }
 
+func TestSignatureEnvelopeCanonicalizationAndValidation(t *testing.T) {
+	p256 := append([]byte{1}, make([]byte, 129)...)
+	p256[129] = 7
+	decoded, err := decodeSignatureEnvelope(p256)
+	require.NoError(t, err)
+	require.Equal(t, byte(1), decoded.Raw[129])
+	require.Equal(t, byte(7), p256[129], "must not mutate caller-owned signature")
+
+	keychain := append(append([]byte{4}, make([]byte, 20)...), make([]byte, 65)...)
+	keychain[85] = 1
+	decoded, err = decodeSignatureEnvelope(keychain)
+	require.NoError(t, err)
+	require.Equal(t, byte(28), decoded.Raw[85])
+	require.Equal(t, byte(1), keychain[85], "must not mutate caller-owned signature")
+
+	_, err = encodeSignatureEnvelope(&signer.SignatureEnvelope{Type: "p256", Raw: keychain})
+	require.Error(t, err)
+	for _, sig := range []*signer.Signature{
+		signer.NewSignature(nil, big.NewInt(1), 0),
+		signer.NewSignature(big.NewInt(1), nil, 0),
+		signer.NewSignature(big.NewInt(-1), big.NewInt(1), 0),
+	} {
+		_, err = encodeSignatureEnvelope(&signer.SignatureEnvelope{Type: "secp256k1", Signature: sig})
+		require.Error(t, err)
+	}
+}
+
+func TestValidateRustCallAuthorizationInvariants(t *testing.T) {
+	callTarget := common.HexToAddress("0x1234")
+	valid := NewBuilder().SetGas(100_000).AddCall(callTarget, nil, nil).Build()
+	require.NoError(t, valid.Validate())
+
+	secondCreate := valid.Clone()
+	secondCreate.Calls = append(secondCreate.Calls, Call{Value: new(big.Int)})
+	require.ErrorContains(t, secondCreate.Validate(), "only the first call")
+
+	createWithAuthorization := valid.Clone()
+	createWithAuthorization.Calls[0].To = nil
+	createWithAuthorization.AuthorizationList = []SignedAuthorization{{}}
+	require.ErrorContains(t, createWithAuthorization.Validate(), "not allowed with an authorization list")
+
+	invalidWindow := valid.Clone()
+	invalidWindow.ValidAfter = 10
+	invalidWindow.ValidBefore = 10
+	require.ErrorContains(t, invalidWindow.Validate(), "validBefore must be greater")
+}
+
 func TestAuthorizationValidation(t *testing.T) {
 	for _, raw := range []interface{}{[]byte{}, []interface{}{[]interface{}{}}, []interface{}{[]interface{}{[]byte{}, []byte{}, []byte{}, []byte{}}}} {
 		_, err := decodeAuthorizations(raw)
