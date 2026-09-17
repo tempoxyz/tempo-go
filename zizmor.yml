@@ -1,0 +1,8 @@
+rules:
+  # The integration jobs intentionally consume repository-level RPC secrets.
+  secrets-outside-env:
+    disable: true
+  # tempoxyz/gh-actions does not publish tags, so its pins cannot carry matching
+  # version comments.
+  ref-version-mismatch:
+    disable: true

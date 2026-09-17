@@ -14,11 +14,17 @@ jobs:
   test:
     name: Test (Go ${{ matrix.go-version }})
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     strategy:
       matrix:
         go-version: ['1.25.x', '1.26.x']
 
     steps:
+    - name: Secure runner
+      uses: tempoxyz/gh-actions/actions/secure-runner@05c669ce878b8719779a28fe7375ba85822403f8
+
     - name: Checkout code
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
@@ -54,8 +60,14 @@ jobs:
     name: Integration Tests (Localnet)
     runs-on: ubuntu-latest
     needs: test
+    permissions:
+      contents: read
+      id-token: write
 
     steps:
+    - name: Secure runner
+      uses: tempoxyz/gh-actions/actions/secure-runner@05c669ce878b8719779a28fe7375ba85822403f8
+
     - name: Checkout code
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
@@ -107,8 +119,14 @@ jobs:
     runs-on: ubuntu-latest
     needs: test
     if: ${{ github.actor != 'dependabot[bot]' }}
+    permissions:
+      contents: read
+      id-token: write
 
     steps:
+    - name: Secure runner
+      uses: tempoxyz/gh-actions/actions/secure-runner@05c669ce878b8719779a28fe7375ba85822403f8
+
     - name: Checkout code
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
@@ -134,8 +152,14 @@ jobs:
     runs-on: ubuntu-latest
     needs: test
     if: ${{ github.actor != 'dependabot[bot]' }}
+    permissions:
+      contents: read
+      id-token: write
 
     steps:
+    - name: Secure runner
+      uses: tempoxyz/gh-actions/actions/secure-runner@05c669ce878b8719779a28fe7375ba85822403f8
+
     - name: Checkout code
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
