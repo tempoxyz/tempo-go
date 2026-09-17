@@ -5,7 +5,7 @@ updates:
     schedule:
       interval: weekly
     cooldown:
-      default-days: 3
+      default-days: 7
       semver-major-days: 7
     groups:
       go-deps:
@@ -16,7 +16,7 @@ updates:
     schedule:
       interval: weekly
     cooldown:
-      default-days: 3
+      default-days: 7
       semver-major-days: 7
     groups:
       go-deps:
@@ -27,7 +27,7 @@ updates:
     schedule:
       interval: weekly
     cooldown:
-      default-days: 3
+      default-days: 7
     groups:
       actions:
         patterns: ["*"]
