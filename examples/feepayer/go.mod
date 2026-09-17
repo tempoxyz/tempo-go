@@ -3,7 +3,7 @@ module github.com/tempoxyz/tempo-go/examples/feepayer
 go 1.25.9
 
 require (
-	github.com/ethereum/go-ethereum v1.17.4
+	github.com/ethereum/go-ethereum v1.17.5
 	github.com/joho/godotenv v1.5.1
 	github.com/tempoxyz/tempo-go v0.0.0
 )
