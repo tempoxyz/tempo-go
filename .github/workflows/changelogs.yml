@@ -9,13 +9,18 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
       pull-requests: write
     steps:
+      - name: Secure runner
+        uses: tempoxyz/gh-actions/actions/secure-runner@05c669ce878b8719779a28fe7375ba85822403f8
+
       # fetch-depth: 0 is required so the action can `git diff origin/main...HEAD`
       # against the base branch.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       # NOTE: `ai: 'amp -x'` and the `AMP_API_KEY` env are still intentionally
       # omitted. The check action's AI path runs

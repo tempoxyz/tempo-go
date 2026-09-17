@@ -15,6 +15,9 @@ jobs:
       contents: read
       id-token: write
     steps:
+      - name: Secure runner
+        uses: tempoxyz/gh-actions/actions/secure-runner@05c669ce878b8719779a28fe7375ba85822403f8
+
       - name: Fetch GitHub token via STS
         id: app-token
         uses: tempoxyz/gh-actions/actions/github-sts@c0292122e255def866c64c55e5844d1e7d5fe7ad # main
@@ -24,7 +27,8 @@ jobs:
       # fetch-depth: 0 + fetch-tags: true so the Go ecosystem can read prior
       # vX.Y.Z tags when computing the next version, and so the action can diff
       # CHANGELOG.md.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The following changelog action pushes the release PR through this token.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # zizmor: ignore[artipacked]
         with:
           fetch-depth: 0
           fetch-tags: true
