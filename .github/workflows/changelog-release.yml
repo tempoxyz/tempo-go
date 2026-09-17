@@ -34,6 +34,6 @@ jobs:
           fetch-tags: true
           token: ${{ steps.app-token.outputs.token }}
 
-      - uses: tempoxyz/changelogs@a19f62e3fdbd6d07b8900eb0568ed09b868bf84d
+      - uses: tempoxyz/changelogs@0b5e471cd4d6c0f773ac0aba076bdbe369118cee
         with:
           github-token: ${{ steps.app-token.outputs.token }}
