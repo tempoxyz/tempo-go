@@ -204,10 +204,10 @@ func (a *KeyAuthorization) Sign(s *signer.Signer) ([]interface{}, error) {
 		return nil, fmt.Errorf("failed to sign key authorization: %w", err)
 	}
 
-	sigBytes := make([]byte, secp256k1SignatureLength)
-	sig.R.FillBytes(sigBytes[0:32])
-	sig.S.FillBytes(sigBytes[32:64])
-	sigBytes[64] = 27 + sig.YParity
+	sigBytes, err := sig.Bytes()
+	if err != nil {
+		return nil, fmt.Errorf("failed to sign key authorization: %w", err)
+	}
 
 	return a.BuildSigned(sigBytes)
 }

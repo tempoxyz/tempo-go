@@ -51,7 +51,7 @@ func TestValidTransactionVectors(t *testing.T) {
 			signWithFeePayer:   false,
 			shouldValidate:     true,
 			expectedSignType:   SignatureTypeSecp256k1,
-			expectedSerialized: "0x76f87201843b9aca008477359400825208d8d79470997970c51812dc3a010c7d01b50e0d17dc79c88080c0808080808080c0b8415699d8feb5ace056f1c1e93c420f53942e7b9f31058cb2a2bb26550e5930ef1a55f6bdd3a27105268536dfe17f386d79f6c8b949698d105838455a20a857c33801",
+			expectedSerialized: "0x76f87201843b9aca008477359400825208d8d79470997970c51812dc3a010c7d01b50e0d17dc79c88080c0808080808080c0b8415699d8feb5ace056f1c1e93c420f53942e7b9f31058cb2a2bb26550e5930ef1a55f6bdd3a27105268536dfe17f386d79f6c8b949698d105838455a20a857c3381c",
 			description:        "Minimal valid transaction with only required fields",
 		},
 		{
