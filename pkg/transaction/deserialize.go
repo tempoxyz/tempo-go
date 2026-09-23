@@ -160,7 +160,11 @@ func Deserialize(serialized string) (*Tx, error) {
 
 	// Field 10: feeToken
 	if feeToken, ok := raw[10].([]byte); ok && len(feeToken) > 0 {
-		tx.FeeToken = common.BytesToAddress(feeToken)
+		addr, err := decodeAddressField(feeToken, "feeToken (field 10)")
+		if err != nil {
+			return nil, err
+		}
+		tx.FeeToken = addr
 	}
 
 	// Field 11: feePayerSignatureOrSender
@@ -284,6 +288,19 @@ func parseSignatureEnvelopeField(field interface{}, index int, requireNonEmpty b
 	return sigEnvelope, nil
 }
 
+// decodeAddressField converts RLP bytes to an address, rejecting anything longer
+// than 20 bytes. common.BytesToAddress keeps only the rightmost 20 bytes, so an
+// over-length field would otherwise be silently truncated: leading bytes would be
+// dropped, distinct inputs would collide onto the same address, and
+// Deserialize -> Serialize would no longer round-trip (changing the tx hash).
+func decodeAddressField(b []byte, field string) (common.Address, error) {
+	if len(b) > common.AddressLength {
+		return common.Address{}, fmt.Errorf("%w: %s exceeds %d bytes (got %d)",
+			ErrInvalidTransaction, field, common.AddressLength, len(b))
+	}
+	return common.BytesToAddress(b), nil
+}
+
 // decodeCalls decodes the calls array from RLP.
 // Each call is encoded as [to, value, data].
 func decodeCalls(callsRaw []interface{}) ([]Call, error) {
@@ -306,7 +323,10 @@ func decodeCalls(callsRaw []interface{}) ([]Call, error) {
 
 		// Field 0: to (address or empty for contract creation)
 		if to, ok := callTuple[0].([]byte); ok && len(to) > 0 {
-			addr := common.BytesToAddress(to)
+			addr, err := decodeAddressField(to, fmt.Sprintf("call %d 'to'", i))
+			if err != nil {
+				return nil, err
+			}
 			call.To = &addr
 		}
 
@@ -346,7 +366,10 @@ func decodeAccessList(accessListRaw []interface{}) (AccessList, error) {
 		if !ok {
 			return nil, fmt.Errorf("access list entry %d address is not bytes", i)
 		}
-		address := common.BytesToAddress(addressBytes)
+		address, err := decodeAddressField(addressBytes, fmt.Sprintf("access list entry %d address", i))
+		if err != nil {
+			return nil, err
+		}
 
 		// Field 1: storage keys
 		storageKeysRaw, ok := tuple[1].([]interface{})
@@ -359,6 +382,10 @@ func decodeAccessList(accessListRaw []interface{}) (AccessList, error) {
 			keyBytes, ok := keyRaw.([]byte)
 			if !ok {
 				return nil, fmt.Errorf("access list entry %d storage key %d is not bytes", i, j)
+			}
+			if len(keyBytes) > common.HashLength {
+				return nil, fmt.Errorf("%w: access list entry %d storage key %d exceeds %d bytes (got %d)",
+					ErrInvalidTransaction, i, j, common.HashLength, len(keyBytes))
 			}
 			storageKeys = append(storageKeys, common.BytesToHash(keyBytes))
 		}
