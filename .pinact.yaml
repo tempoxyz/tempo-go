@@ -1,0 +1,6 @@
+version: 3
+rules:
+  # This commit predates the changelogs release tags; keep its exact SHA pin.
+  - ignore: true
+    conditions:
+      - expr: ActionName matches "^tempoxyz/changelogs(/check)?$"
