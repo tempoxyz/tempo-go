@@ -28,11 +28,12 @@ jobs:
       # vX.Y.Z tags when computing the next version, and so the action can diff
       # CHANGELOG.md.
       # The following changelog action pushes the release PR through this token.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # zizmor: ignore[artipacked]
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           fetch-tags: true
           token: ${{ steps.app-token.outputs.token }}
+          persist-credentials: false
 
       - uses: tempoxyz/changelogs@a19f62e3fdbd6d07b8900eb0568ed09b868bf84d
         with:
