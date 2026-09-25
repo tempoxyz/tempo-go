@@ -35,6 +35,6 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
           persist-credentials: false
 
-      - uses: tempoxyz/changelogs@a19f62e3fdbd6d07b8900eb0568ed09b868bf84d
+      - uses: tempoxyz/changelogs@fed7de62e4b5dc585c6eb77aabd1264ecbe82640
         with:
           github-token: ${{ steps.app-token.outputs.token }}
