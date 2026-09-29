@@ -38,7 +38,7 @@ fix:
 
 # Run integration tests only (uses docker-compose tempo node by default)
 integration:
-	@TEMPO_RPC_URL=$${TEMPO_RPC_URL:-http://localhost:8545} go test -run TestIntegration -timeout=5m ./tests
+	@TEMPO_RPC_URL=$${TEMPO_RPC_URL:-http://localhost:8545} go test -count=1 -run TestIntegration -timeout=10m ./tests
 
 # Start godoc server for viewing documentation
 docs:
