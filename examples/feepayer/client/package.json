@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "TypeScript client for Go Tempo fee payer server",
   "type": "module",
+  "packageManager": "pnpm@11.0.8",
   "scripts": {
     "start": "tsx client.ts",
     "check": "tsc --noEmit"
@@ -11,7 +12,7 @@
     "@noble/curves": "^2.0.1",
     "dotenv": "^16.3.1",
     "tempo.ts": "^0.14.0",
-    "viem": "^2.45.1"
+    "viem": "^2.54.2"
   },
   "devDependencies": {
     "@types/node": "^25.2.0",
