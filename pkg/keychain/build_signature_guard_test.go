@@ -19,6 +19,9 @@ func TestBuildKeychainSignatureRejectsMalformedScalars(t *testing.T) {
 		{name: "nil S", sig: signer.NewSignature(big.NewInt(1), nil, 0)},
 		{name: "oversized R", sig: signer.NewSignature(oversized, big.NewInt(1), 0)},
 		{name: "oversized S", sig: signer.NewSignature(big.NewInt(1), oversized, 0)},
+		{name: "negative R", sig: signer.NewSignature(big.NewInt(-1), big.NewInt(1), 0)},
+		{name: "negative S", sig: signer.NewSignature(big.NewInt(1), big.NewInt(-1), 0)},
+		{name: "invalid parity", sig: signer.NewSignature(big.NewInt(1), big.NewInt(1), 2)},
 	}
 
 	for _, test := range tests {

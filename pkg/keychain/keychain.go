@@ -36,34 +36,17 @@ const (
 //
 // Returns the 86-byte Keychain signature, or an error if innerSig is malformed.
 func BuildKeychainSignature(innerSig *signer.Signature, rootAccount common.Address) ([]byte, error) {
-	if innerSig == nil || innerSig.R == nil || innerSig.S == nil {
-		return nil, fmt.Errorf("inner signature and its R/S components must be non-nil")
-	}
-	if l := len(innerSig.R.Bytes()); l > 32 {
-		return nil, fmt.Errorf("inner signature R exceeds 32 bytes (got %d)", l)
-	}
-	if l := len(innerSig.S.Bytes()); l > 32 {
-		return nil, fmt.Errorf("inner signature S exceeds 32 bytes (got %d)", l)
+	// Bytes 21-85: canonical r || s || v with the legacy recovery ID (27 or 28).
+	inner, err := innerSig.Bytes()
+	if err != nil {
+		return nil, fmt.Errorf("inner signature: %w", err)
 	}
 
-	result := make([]byte, KeychainSignatureLength)
-
-	// Byte 0: Keychain V2 signature type (0x04)
-	result[0] = KeychainSignatureType
-
-	// Bytes 1-20: Root account address
-	copy(result[1:21], rootAccount.Bytes())
-
-	// Bytes 21-52: R (left-padded to 32 bytes)
-	innerSig.R.FillBytes(result[21:53])
-
-	// Bytes 53-84: S (left-padded to 32 bytes)
-	innerSig.S.FillBytes(result[53:85])
-
-	// Byte 85: V (yParity)
-	result[85] = innerSig.YParity
-
-	return result, nil
+	// Byte 0: Keychain V2 signature type (0x04). Bytes 1-20: root account address.
+	result := make([]byte, 0, KeychainSignatureLength)
+	result = append(result, KeychainSignatureType)
+	result = append(result, rootAccount.Bytes()...)
+	return append(result, inner...), nil
 }
 
 // SignWithAccessKey signs a Tempo transaction using an access key.
@@ -145,11 +128,10 @@ func ParseKeychainSignature(sig []byte) (sigType byte, rootAccount common.Addres
 
 	rootAccount = common.BytesToAddress(sig[1:21])
 
-	innerSig = signer.NewSignature(
-		byteSliceToBigInt(sig[21:53]), // R
-		byteSliceToBigInt(sig[53:85]), // S
-		sig[85],                       // YParity
-	)
+	innerSig, err = signer.ParseSignatureBytes(sig[21:])
+	if err != nil {
+		return 0, common.Address{}, nil, fmt.Errorf("invalid keychain inner signature: %w", err)
+	}
 
 	return sigType, rootAccount, innerSig, nil
 }

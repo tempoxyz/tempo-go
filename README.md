@@ -176,8 +176,36 @@ client.SendRawTransaction(context.Background(), serialized)
 | `client`      | RPC client for interacting with Tempo nodes        | [GoDoc](https://pkg.go.dev/github.com/tempoxyz/tempo-go/pkg/client)      |
 | `signer`      | Key management and signature generation            | [GoDoc](https://pkg.go.dev/github.com/tempoxyz/tempo-go/pkg/signer)      |
 | `keychain`    | Keychain-based transaction signing and witness APIs | [GoDoc](https://pkg.go.dev/github.com/tempoxyz/tempo-go/pkg/keychain)    |
+| `precompiles` | Precompile ABIs and batch-call encoding             | [Package](pkg/precompiles)                                          |
+
+### Precompile interfaces
+
+`pkg/precompiles` exposes functions, events and errors for all 19 precompile
+interfaces in its pinned Rust `tempo-contracts` revision. `precompiles.Names()`
+lists the interfaces; `precompiles.ABI(name)` returns a go-ethereum ABI for
+encoding calls and decoding results/events/errors. `precompiles.Call` constructs
+a batch call, and `precompiles.Address` resolves interfaces with fixed addresses.
+Check network hardfork support before using a function.
+
+```go
+call, err := precompiles.Call("ITIP20", token, "transfer", recipient, amount)
+// Handle err, then include call in tx.Calls.
+```
+
+### Delegations
+
+Tempo EIP-7702 delegations are represented by `transaction.SignedAuthorization`
+and `Tx.AuthorizationList`. `SignedAuthorization.SignatureHash` supports external
+AA signers; `Sign` uses a secp256k1 signer. These are four-field Tempo
+authorizations, not Ethereum's six-field signed authorizations.
 
 ## Testing
+
+### Rust compatibility
+
+The [DFF comparison suite](tests/differential) checks transaction encoding and
+signing hashes against the pinned Rust implementation. It documents what is
+covered and what still needs execution-level validation.
 
 ### Run Unit Tests
 

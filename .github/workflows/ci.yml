@@ -11,6 +11,32 @@ on:
 permissions: {}
 
 jobs:
+  rust-compatibility:
+    name: Rust codec and ABI compatibility
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version: '1.25.x'
+    - name: Set up Rust
+      run: rustup toolchain install stable --profile minimal
+    - name: Build pinned implementations
+      run: |
+        (cd tests/differential && go build -o ../../bin/tempo-dff .)
+        cargo +stable build --locked --manifest-path tests/differential/rust/Cargo.toml
+    - name: Compare 1000 deterministic cases and generated ABIs
+      run: |
+        bin/tempo-dff -role corpus -count 1000 > "$RUNNER_TEMP/tempo-corpus"
+        bin/tempo-dff -role replay < "$RUNNER_TEMP/tempo-corpus" > "$RUNNER_TEMP/go-result"
+        tests/differential/rust/target/debug/tempo-go-oracle --stdin < "$RUNNER_TEMP/tempo-corpus" > "$RUNNER_TEMP/rust-result"
+        cmp "$RUNNER_TEMP/go-result" "$RUNNER_TEMP/rust-result"
+        tests/differential/rust/target/debug/tempo-go-oracle --abis > "$RUNNER_TEMP/contracts.json"
+        cmp pkg/precompiles/contracts.json "$RUNNER_TEMP/contracts.json"
+        go test ./pkg/precompiles
+
   test:
     name: Test (Go ${{ matrix.go-version }})
     runs-on: ubuntu-latest

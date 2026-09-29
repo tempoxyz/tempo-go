@@ -82,6 +82,13 @@ func (b *Builder) SetValidAfter(validAfter uint64) *Builder {
 // SetFeeToken sets the token to use for paying gas fees.
 func (b *Builder) SetFeeToken(token common.Address) *Builder {
 	b.tx.FeeToken = token
+	b.tx.FeeTokenSet = token == (common.Address{})
+	return b
+}
+
+// SetAuthorizationList sets the Tempo EIP-7702 delegations.
+func (b *Builder) SetAuthorizationList(authorizations []SignedAuthorization) *Builder {
+	b.tx.AuthorizationList = authorizations
 	return b
 }
 
