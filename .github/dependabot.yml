@@ -22,6 +22,16 @@ updates:
       go-deps:
         patterns: ["*"]
 
+  - package-ecosystem: npm
+    directory: /examples/feepayer/client
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      npm-deps:
+        patterns: ["*"]
+
   - package-ecosystem: github-actions
     directory: /
     schedule:
