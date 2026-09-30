@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	_ "embed"
 	"encoding/hex"
 	"fmt"
 	"math/big"
@@ -11,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -29,7 +32,6 @@ var (
 	feeController   = common.HexToAddress("0xfeec000000000000000000000000000000000000")
 	accountKeychain = common.HexToAddress("0xAAAAAAAA00000000000000000000000000000000")
 	dex             = common.HexToAddress("0xdec0000000000000000000000000000000000000")
-	counterContract = common.HexToAddress("0x86A2EE8FAf9A840F7a2c64CA3d51209F9A02081D")
 	lpRecipient     = common.HexToAddress("0x6c4143BEd3A13cf9E5E43d45C60aD816FC091d0c")
 )
 
@@ -98,11 +100,13 @@ func isT8OrLater() bool {
 
 // testContext encapsulates common test dependencies and helpers
 type testContext struct {
-	t        *testing.T
-	ctx      context.Context
-	client   *client.Client
-	chainID  int64
-	gasPrice *big.Int
+	t            *testing.T
+	ctx          context.Context
+	client       *client.Client
+	chainID      int64
+	gasPrice     *big.Int
+	counter      common.Address
+	counterValue uint64
 }
 
 // newTestContext creates a new test context with RPC client, chain ID, and gas price
@@ -278,6 +282,14 @@ func (tc *testContext) sendTxExpectSuccess(tx *transaction.Tx, msg string) map[s
 	require.NotNil(tc.t, receipt, "Failed to get receipt")
 	status, _ := receipt["status"].(string)
 	require.Equal(tc.t, "0x1", status, msg)
+	for _, call := range tx.Calls {
+		if tc.counter != (common.Address{}) && call.To != nil && *call.To == tc.counter && bytes.Equal(call.Data, incrementSelector) {
+			tc.counterValue++
+		}
+	}
+	if tc.counter != (common.Address{}) {
+		tc.assertCounterValue()
+	}
 	tc.formatReceipt(receipt)
 	return receipt
 }
@@ -455,8 +467,8 @@ func TestIntegration_SimpleTransaction(t *testing.T) {
 
 	tx := tc.newTxBuilder().
 		SetNonce(tc.getNonce(sender.Address())).
-		SetGas(300000).
-		AddCall(counterContract, big.NewInt(0), incrementSelector).
+		SetGas(counterGasLimit).
+		AddCall(tc.counterAddress(), big.NewInt(0), incrementSelector).
 		Build()
 
 	err := transaction.SignTransaction(tx, sender)
@@ -593,9 +605,9 @@ func TestIntegration_SendWithFeeToken(t *testing.T) {
 		t.Run(ft.name, func(t *testing.T) {
 			tx := tc.newTxBuilder().
 				SetNonce(tc.getNonce(sender.Address())).
-				SetGas(300000).
+				SetGas(counterGasLimit).
 				SetFeeToken(ft.token).
-				AddCall(counterContract, big.NewInt(0), incrementSelector).
+				AddCall(tc.counterAddress(), big.NewInt(0), incrementSelector).
 				Build()
 
 			err := transaction.SignTransaction(tx, sender)
@@ -618,8 +630,8 @@ func TestIntegration_2DNonces(t *testing.T) {
 			tx := tc.newTxBuilder().
 				SetNonce(0).
 				SetNonceKey(big.NewInt(key)).
-				SetGas(300000).
-				AddCall(counterContract, big.NewInt(0), incrementSelector).
+				SetGas(counterGasLimit).
+				AddCall(tc.counterAddress(), big.NewInt(0), incrementSelector).
 				Build()
 
 			err := transaction.SignTransaction(tx, sender)
@@ -634,6 +646,8 @@ func TestIntegration_2DNonces(t *testing.T) {
 func TestIntegration_ExpiringNonces(t *testing.T) {
 	tc := newTestContext(t)
 	sender := tc.createAndFundSigner()
+	// Finish fixture deployment before starting the transaction validity window.
+	tc.counterAddress()
 
 	t.Run("ValidBefore", func(t *testing.T) {
 		validBefore := uint64(time.Now().Unix() + 25)
@@ -642,8 +656,8 @@ func TestIntegration_ExpiringNonces(t *testing.T) {
 			SetNonce(0).
 			SetNonceKey(big.NewInt(100)).
 			SetValidBefore(validBefore).
-			SetGas(300000).
-			AddCall(counterContract, big.NewInt(0), incrementSelector).
+			SetGas(counterGasLimit).
+			AddCall(tc.counterAddress(), big.NewInt(0), incrementSelector).
 			Build()
 
 		err := transaction.SignTransaction(tx, sender)
@@ -662,8 +676,8 @@ func TestIntegration_ExpiringNonces(t *testing.T) {
 			SetNonceKey(big.NewInt(101)).
 			SetValidAfter(validAfter).
 			SetValidBefore(validBefore).
-			SetGas(300000).
-			AddCall(counterContract, big.NewInt(0), incrementSelector).
+			SetGas(counterGasLimit).
+			AddCall(tc.counterAddress(), big.NewInt(0), incrementSelector).
 			Build()
 
 		err := transaction.SignTransaction(tx, sender)
@@ -686,8 +700,8 @@ func TestIntegration_SponsoredTransaction(t *testing.T) {
 	tx := tc.newTxBuilder().
 		SetNonce(0).
 		SetNonceKey(big.NewInt(200)).
-		SetGas(300000).
-		AddCall(counterContract, big.NewInt(0), incrementSelector).
+		SetGas(counterGasLimit).
+		AddCall(tc.counterAddress(), big.NewInt(0), incrementSelector).
 		SetSponsored(true).
 		Build()
 
@@ -723,19 +737,34 @@ func TestIntegration_AccessKeys(t *testing.T) {
 	t.Logf("Access key: %s", accessKey.Address().Hex())
 
 	t.Run("AuthorizeAccessKey", func(t *testing.T) {
-		tx := tc.newTxBuilder().
-			SetNonce(tc.getNonce(rootAccount.Address())).
-			SetGas(600000).
-			AddCall(counterContract, big.NewInt(0), incrementSelector).
-			Build()
+		calldata := buildAuthorizeKeyCalldata(accessKey.Address(), farFutureKeyExpiry, false)
 
-		auth := keychain.NewKeyAuthorization(
-			uint64(tc.chainID), keychain.SignatureTypeSecp256k1, accessKey.Address(),
-		).WithExpiry(uint64(farFutureKeyExpiry))
-		require.NoError(t, auth.SignAndAttach(tx, rootAccount))
-		require.NoError(t, transaction.SignTransaction(tx, rootAccount))
+		eip1559Tx := types.NewTx(&types.DynamicFeeTx{
+			ChainID:   big.NewInt(tc.chainID),
+			Nonce:     tc.getNonce(rootAccount.Address()),
+			GasTipCap: tc.gasPrice,
+			GasFeeCap: tc.gasPrice,
+			Gas:       600000,
+			To:        &accountKeychain,
+			Value:     big.NewInt(0),
+			Data:      calldata,
+		})
 
-		tc.sendTxExpectSuccess(tx, "Transaction key authorization failed")
+		signedTx, err := types.SignTx(eip1559Tx, types.NewLondonSigner(big.NewInt(tc.chainID)), rootAccount.PrivateKey())
+		require.NoError(t, err)
+
+		txBytes, err := signedTx.MarshalBinary()
+		require.NoError(t, err)
+
+		txHash, err := tc.client.SendRawTransaction(tc.ctx, "0x"+hex.EncodeToString(txBytes))
+		require.NoError(t, err)
+		t.Logf("Authorize access key tx hash: %s", txHash)
+
+		receipt := tc.waitForReceipt(txHash)
+		require.NotNil(t, receipt, "Failed to get authorization receipt")
+		status, _ := receipt["status"].(string)
+		require.Equal(t, "0x1", status, "Authorization tx failed")
+		tc.formatReceipt(receipt)
 	})
 
 	time.Sleep(3 * time.Second)
@@ -744,8 +773,8 @@ func TestIntegration_AccessKeys(t *testing.T) {
 		tx := tc.newTxBuilder().
 			SetNonce(0).
 			SetNonceKey(big.NewInt(300)).
-			SetGas(500000).
-			AddCall(counterContract, big.NewInt(0), incrementSelector).
+			SetGas(counterGasLimit).
+			AddCall(tc.counterAddress(), big.NewInt(0), incrementSelector).
 			Build()
 
 		err := keychain.SignWithAccessKey(tx, accessKey, rootAccount.Address())
@@ -817,8 +846,8 @@ func parseABIEncodedBool(t *testing.T, result string) bool {
 	return false
 }
 
-// TestIntegration_KeychainLifecycle tests inline authorization followed by keychain queries and revocation.
-func TestIntegration_KeychainLifecycle(t *testing.T) {
+// TestIntegration_KeychainSelectors tests that keychain selectors work against the precompile
+func TestIntegration_KeychainSelectors(t *testing.T) {
 	tc := newTestContext(t)
 
 	rootAccount := tc.createAndFundSigner()
@@ -831,19 +860,17 @@ func TestIntegration_KeychainLifecycle(t *testing.T) {
 	t.Logf("Root account: %s", rootAccount.Address().Hex())
 	t.Logf("Access key: %s", accessKey.Address().Hex())
 
-	// Step 1: Authorize through the transaction key_authorization field. TIP-1099 removes
-	// the direct authorizeKey precompile selectors at T11.
+	// Step 1: Authorize the key with enforceLimits=false, empty TokenLimit[]
+	authCalldata := buildAuthorizeKeyCalldata(accessKey.Address(), expiry, false)
+
 	authTx := tc.newTxBuilder().
 		SetNonce(tc.getNonce(rootAccount.Address())).
 		SetGas(600000).
-		AddCall(counterContract, big.NewInt(0), incrementSelector).
+		AddCall(accountKeychain, big.NewInt(0), authCalldata).
 		Build()
 
-	auth := keychain.NewKeyAuthorization(
-		uint64(tc.chainID), keychain.SignatureTypeSecp256k1, accessKey.Address(),
-	).WithExpiry(uint64(expiry))
-	require.NoError(t, auth.SignAndAttach(authTx, rootAccount))
-	require.NoError(t, transaction.SignTransaction(authTx, rootAccount))
+	err = transaction.SignTransaction(authTx, rootAccount)
+	require.NoError(t, err)
 
 	receipt := tc.sendTxExpectSuccess(authTx, "Authorization tx failed")
 	require.NotNil(t, receipt)
@@ -982,8 +1009,8 @@ func TestIntegration_T6KeyAuthorization(t *testing.T) {
 		t.Helper()
 		tx := tc.newTxBuilder().
 			SetNonce(tc.getNonce(rootAccount.Address())).
-			SetGas(600000).
-			AddCall(counterContract, big.NewInt(0), incrementSelector).
+			SetGas(counterGasLimit).
+			AddCall(tc.counterAddress(), big.NewInt(0), incrementSelector).
 			Build()
 
 		require.NoError(t, auth.SignAndAttach(tx, rootAccount))
@@ -1133,9 +1160,9 @@ func TestIntegration_BatchTransactions(t *testing.T) {
 	t.Run("TwoCalls", func(t *testing.T) {
 		tx := tc.newTxBuilder().
 			SetNonce(tc.getNonce(sender.Address())).
-			SetGas(300000).
-			AddCall(counterContract, big.NewInt(0), incrementSelector).
-			AddCall(counterContract, big.NewInt(0), incrementSelector).
+			SetGas(counterGasLimit).
+			AddCall(tc.counterAddress(), big.NewInt(0), incrementSelector).
+			AddCall(tc.counterAddress(), big.NewInt(0), incrementSelector).
 			Build()
 
 		err := transaction.SignTransaction(tx, sender)
@@ -1147,10 +1174,10 @@ func TestIntegration_BatchTransactions(t *testing.T) {
 	t.Run("ThreeCalls", func(t *testing.T) {
 		tx := tc.newTxBuilder().
 			SetNonce(tc.getNonce(sender.Address())).
-			SetGas(300000).
-			AddCall(counterContract, big.NewInt(0), incrementSelector).
-			AddCall(counterContract, big.NewInt(0), incrementSelector).
-			AddCall(counterContract, big.NewInt(0), incrementSelector).
+			SetGas(counterGasLimit).
+			AddCall(tc.counterAddress(), big.NewInt(0), incrementSelector).
+			AddCall(tc.counterAddress(), big.NewInt(0), incrementSelector).
+			AddCall(tc.counterAddress(), big.NewInt(0), incrementSelector).
 			Build()
 
 		err := transaction.SignTransaction(tx, sender)
@@ -1299,4 +1326,60 @@ func TestIntegration_RoundTrip(t *testing.T) {
 	recoveredAddr, err := transaction.VerifySignature(deserializedTx)
 	require.NoError(t, err)
 	assert.Equal(t, sender.Address(), recoveredAddr)
+}
+
+//go:embed testdata/Counter.hex
+var counterCreationHex string
+
+// Allow for Tempo's storage allocation cost on the first increment.
+const counterGasLimit = 1000000
+
+// counterAddress lazily deploys an isolated fixture only for tests that use it.
+func (tc *testContext) counterAddress() common.Address {
+	tc.t.Helper()
+	if tc.counter != (common.Address{}) {
+		return tc.counter
+	}
+	deployer := tc.createAndFundSigner()
+	bytecode, err := hex.DecodeString(strings.TrimPrefix(strings.TrimSpace(counterCreationHex), "0x"))
+	require.NoError(tc.t, err)
+	require.NotEmpty(tc.t, bytecode)
+	tx := types.NewTx(&types.DynamicFeeTx{
+		ChainID:   big.NewInt(tc.chainID),
+		Nonce:     tc.getNonce(deployer.Address()),
+		GasTipCap: tc.gasPrice,
+		GasFeeCap: tc.gasPrice,
+		Gas:       1000000,
+		Data:      bytecode,
+	})
+	signed, err := types.SignTx(tx, types.NewLondonSigner(big.NewInt(tc.chainID)), deployer.PrivateKey())
+	require.NoError(tc.t, err)
+	raw, err := signed.MarshalBinary()
+	require.NoError(tc.t, err)
+	hash, err := tc.client.SendRawTransaction(tc.ctx, "0x"+hex.EncodeToString(raw))
+	require.NoError(tc.t, err)
+	receipt := tc.waitForReceipt(hash)
+	require.NotNil(tc.t, receipt, "Counter deployment receipt missing")
+	require.Equal(tc.t, "0x1", receipt["status"], "Counter deployment failed")
+	address, ok := receipt["contractAddress"].(string)
+	require.True(tc.t, ok && common.IsHexAddress(address), "Invalid Counter deployment address")
+	tc.counter = common.HexToAddress(address)
+	require.NotEqual(tc.t, common.Address{}, tc.counter)
+	tc.assertCounterValue()
+	tc.t.Logf("Deployed Counter at %s", tc.counter.Hex())
+	return tc.counter
+}
+
+// assertCounterValue rejects empty/no-op targets as well as incorrect state changes.
+func (tc *testContext) assertCounterValue() {
+	tc.t.Helper()
+	result, err := tc.client.SendRequest(tc.ctx, "eth_call", map[string]string{
+		"to":   tc.counter.Hex(),
+		"data": "0x8381f58a", // number()
+	}, "latest")
+	require.NoError(tc.t, err)
+	require.Nil(tc.t, result.Error)
+	value, ok := result.Result.(string)
+	require.True(tc.t, ok)
+	require.Equal(tc.t, fmt.Sprintf("0x%064x", tc.counterValue), value, "Unexpected Counter value")
 }

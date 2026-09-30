@@ -5,7 +5,7 @@ updates:
     schedule:
       interval: weekly
     cooldown:
-      default-days: 3
+      default-days: 7
       semver-major-days: 7
     groups:
       go-deps:
@@ -16,10 +16,20 @@ updates:
     schedule:
       interval: weekly
     cooldown:
-      default-days: 3
+      default-days: 7
       semver-major-days: 7
     groups:
       go-deps:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /examples/feepayer/client
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      npm-deps:
         patterns: ["*"]
 
   - package-ecosystem: github-actions
@@ -27,7 +37,7 @@ updates:
     schedule:
       interval: weekly
     cooldown:
-      default-days: 3
+      default-days: 7
     groups:
       actions:
         patterns: ["*"]

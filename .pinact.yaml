@@ -1,0 +1,6 @@
+version: 3
+rules:
+  # Keep the reviewed changelogs revision pinned by SHA until it has a release tag.
+  - ignore: true
+    conditions:
+      - expr: ActionName matches "^tempoxyz/changelogs(/check)?$"
