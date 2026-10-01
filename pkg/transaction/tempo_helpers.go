@@ -17,6 +17,9 @@ const (
 	TIP20ApproveSelector = "095ea7b3"
 	// TIP20TransferWithMemoSelector is the transferWithMemo(address,uint256,bytes32) selector without a 0x prefix.
 	TIP20TransferWithMemoSelector = "95777d59"
+	// TIP20BurnAtSelector is the burnAt(address,uint256) selector without a 0x prefix.
+	// burnAt is available from T12 (TIP-1006).
+	TIP20BurnAtSelector           = "9803f216"
 	tip20SelectorSize             = 4
 	tip20ABISlotSize              = 32
 	tip20TransferCalldataSize     = tip20SelectorSize + (2 * tip20ABISlotSize)
@@ -40,11 +43,14 @@ var (
 	TIP20TransferTopic = crypto.Keccak256Hash([]byte("Transfer(address,address,uint256)"))
 	// TIP20TransferWithMemoTopic is the TransferWithMemo(address,address,uint256,bytes32) event topic.
 	TIP20TransferWithMemoTopic = crypto.Keccak256Hash([]byte("TransferWithMemo(address,address,uint256,bytes32)"))
+	// TIP20BurnAtRole is the BURN_AT_ROLE identifier required to call burnAt (T12+).
+	TIP20BurnAtRole = crypto.Keccak256Hash([]byte("BURN_AT_ROLE"))
 )
 
 var (
 	tip20TransferSelectorBytes         = [4]byte{0xa9, 0x05, 0x9c, 0xbb}
 	tip20TransferWithMemoSelectorBytes = [4]byte{0x95, 0x77, 0x7d, 0x59}
+	tip20BurnAtSelectorBytes           = [4]byte{0x98, 0x03, 0xf2, 0x16}
 )
 
 // EncodeTIP20TransferData encodes TIP-20 transfer(address,uint256) calldata.
@@ -70,6 +76,18 @@ func EncodeTIP20TransferWithMemoData(recipient common.Address, amount *big.Int, 
 		return nil, err
 	}
 	copy(data[tip20MemoOffset:tip20TransferWithMemoDataSize], memo)
+	return data, nil
+}
+
+// EncodeTIP20BurnAtData encodes TIP-20 burnAt(address,uint256) calldata.
+// The caller must hold BURN_AT_ROLE on the token; burnAt is available from T12 (TIP-1006).
+func EncodeTIP20BurnAtData(from common.Address, amount *big.Int) ([]byte, error) {
+	data := make([]byte, tip20TransferCalldataSize)
+	copy(data[:tip20SelectorSize], tip20BurnAtSelectorBytes[:])
+	copy(data[tip20AddressOffset:tip20AmountOffset], from.Bytes())
+	if err := encodeUint256(amount, data[tip20AmountOffset:tip20TransferCalldataSize]); err != nil {
+		return nil, err
+	}
 	return data, nil
 }
 

@@ -18,7 +18,8 @@ var tip20TestABI = mustParseTIP20ABI()
 func mustParseTIP20ABI() abi.ABI {
 	parsed, err := abi.JSON(strings.NewReader(`[
 		{"type":"function","name":"transfer","inputs":[{"name":"recipient","type":"address"},{"name":"amount","type":"uint256"}],"outputs":[]},
-		{"type":"function","name":"transferWithMemo","inputs":[{"name":"recipient","type":"address"},{"name":"amount","type":"uint256"},{"name":"memo","type":"bytes32"}],"outputs":[]}
+		{"type":"function","name":"transferWithMemo","inputs":[{"name":"recipient","type":"address"},{"name":"amount","type":"uint256"},{"name":"memo","type":"bytes32"}],"outputs":[]},
+		{"type":"function","name":"burnAt","inputs":[{"name":"from","type":"address"},{"name":"amount","type":"uint256"}],"outputs":[]}
 	]`))
 	if err != nil {
 		panic(err)
@@ -92,6 +93,29 @@ func TestParseTopicAddress(t *testing.T) {
 
 func TestTempoAddressConstants(t *testing.T) {
 	assert.Equal(t, common.HexToAddress("0x20c0000000000000000000000000000000000000"), PathUSDAddress)
+}
+
+func TestEncodeTIP20BurnAtData(t *testing.T) {
+	from := common.HexToAddress("0x70997970C51812dc3A010C7d01b50e0d17dc79C8")
+	amount := big.NewInt(1_000_000)
+
+	data, err := EncodeTIP20BurnAtData(from, amount)
+	require.NoError(t, err)
+
+	expected, err := tip20TestABI.Pack("burnAt", from, amount)
+	require.NoError(t, err)
+	assert.Equal(t, expected, data)
+	assert.Equal(t, TIP20BurnAtSelector, hex.EncodeToString(data[:tip20SelectorSize]))
+}
+
+func TestEncodeTIP20BurnAtDataRejectsOutOfRangeAmount(t *testing.T) {
+	_, err := EncodeTIP20BurnAtData(common.Address{}, big.NewInt(-1))
+
+	assert.EqualError(t, err, "amount must be non-negative")
+}
+
+func TestTIP20BurnAtRole(t *testing.T) {
+	assert.Equal(t, common.HexToHash("0x39f6ee57cf2acaf8eab1056c2dcc3068f1f3d6a61e4777cf2bfdad7b1df90a27"), TIP20BurnAtRole)
 }
 
 func bytesTrimLeftZero(input []byte) []byte {
