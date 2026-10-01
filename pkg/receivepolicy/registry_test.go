@@ -64,6 +64,20 @@ func TestParseReceivePolicyResult(t *testing.T) {
 	if got != want {
 		t.Errorf("expected %+v, got %+v", want, got)
 	}
+
+	for _, tc := range []struct {
+		name   string
+		result []byte
+	}{
+		{"short", encoded[:len(encoded)-1]},
+		{"trailing data", append(append([]byte{}, encoded...), make([]byte, 32)...)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := ParseReceivePolicyResult(tc.result); err == nil {
+				t.Fatal("expected error, got nil")
+			}
+		})
+	}
 }
 
 func TestParseValidateReceivePolicyResult(t *testing.T) {
@@ -82,6 +96,20 @@ func TestParseValidateReceivePolicyResult(t *testing.T) {
 	}
 	if reason != BlockedReasonTokenFilter {
 		t.Errorf("expected reason %d, got %d", BlockedReasonTokenFilter, reason)
+	}
+
+	for _, tc := range []struct {
+		name   string
+		result []byte
+	}{
+		{"short", encoded[:len(encoded)-1]},
+		{"trailing data", append(append([]byte{}, encoded...), make([]byte, 32)...)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, _, err := ParseValidateReceivePolicyResult(tc.result); err == nil {
+				t.Fatal("expected error, got nil")
+			}
+		})
 	}
 }
 

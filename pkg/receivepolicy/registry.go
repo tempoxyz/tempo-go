@@ -143,6 +143,9 @@ func ReceivePolicyCall(account common.Address) (Call, error) {
 
 // ParseReceivePolicyResult parses the result of a receivePolicy call.
 func ParseReceivePolicyResult(result []byte) (ReceivePolicy, error) {
+	if len(result) != 6*32 {
+		return ReceivePolicy{}, fmt.Errorf("invalid receivePolicy result length: expected %d, got %d", 6*32, len(result))
+	}
 	values, err := receivePolicyABI.Unpack("receivePolicy", result)
 	if err != nil {
 		return ReceivePolicy{}, fmt.Errorf("failed to decode receivePolicy result: %w", err)
@@ -175,6 +178,9 @@ func ValidateReceivePolicy(token, sender, receiver common.Address) (Call, error)
 // call. authorized is true when the transfer is allowed; otherwise blockedReason
 // holds the reason (one of the BlockedReason constants).
 func ParseValidateReceivePolicyResult(result []byte) (authorized bool, blockedReason uint8, err error) {
+	if len(result) != 2*32 {
+		return false, 0, fmt.Errorf("invalid validateReceivePolicy result length: expected %d, got %d", 2*32, len(result))
+	}
 	values, err := validateReceivePolicyABI.Unpack("validateReceivePolicy", result)
 	if err != nil {
 		return false, 0, fmt.Errorf("failed to decode validateReceivePolicy result: %w", err)
