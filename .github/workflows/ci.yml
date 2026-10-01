@@ -105,7 +105,7 @@ jobs:
       run: go test -count=1 -v -run "TestIntegration_NodeConnection|TestIntegration_BuilderValidation|TestIntegration_RoundTrip|TestIntegration_T8CurrentCommittee" -timeout=5m ./tests
       env:
         TEMPO_RPC_URL: http://localhost:8545
-        TEMPO_HARDFORK: T12
+        TEMPO_HARDFORK: T8
 
     - name: Show Tempo node logs on failure
       if: failure()

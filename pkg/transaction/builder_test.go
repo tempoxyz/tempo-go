@@ -60,6 +60,25 @@ func TestTransactionBuilder_ExpiringNonceDiscriminatorsDiffer(t *testing.T) {
 	assert.Equal(t, uint64(102), decoded.Nonce)
 }
 
+func TestTransactionBuilder_ExpiringNonceRequiresValidBefore(t *testing.T) {
+	builder := NewBuilder(big.NewInt(42424)).
+		SetGas(100000).
+		SetExpiringNonce(101).
+		AddCall(common.HexToAddress("0x1111111111111111111111111111111111111111"), big.NewInt(0), nil)
+
+	_, err := builder.BuildAndValidate()
+	assert.ErrorIs(t, err, ErrInvalidTransaction)
+	assert.ErrorContains(t, err, "expiring nonce transaction must set validBefore")
+
+	_, err = builder.SetValidBefore(1000000).BuildAndValidate()
+	assert.NoError(t, err)
+}
+
+func TestExpiringNonceKeyReturnsCopy(t *testing.T) {
+	ExpiringNonceKey().SetInt64(0)
+	assert.Equal(t, 256, ExpiringNonceKey().BitLen())
+}
+
 func TestTransaction_IsExpiringNonce(t *testing.T) {
 	assert.False(t, New().IsExpiringNonce())
 	assert.False(t, (&Tx{}).IsExpiringNonce())

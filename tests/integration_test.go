@@ -1063,7 +1063,8 @@ func TestIntegration_T8CurrentCommittee(t *testing.T) {
 }
 
 // TestIntegration_T12ExpiringNonceDiscriminators submits otherwise identical
-// expiring nonce transactions that differ only in their nonce (TIP-1106).
+// expiring nonce transactions that differ only in their nonce (TIP-1106), then
+// checks that replaying one of them is rejected.
 func TestIntegration_T12ExpiringNonceDiscriminators(t *testing.T) {
 	if !isT12OrLater() {
 		t.Skip("requires TEMPO_HARDFORK=T12 or later and a T12-capable RPC")
@@ -1075,7 +1076,7 @@ func TestIntegration_T12ExpiringNonceDiscriminators(t *testing.T) {
 	tc.counterAddress()
 	validBefore := uint64(time.Now().Unix() + 25)
 
-	hashes := make(map[common.Hash]struct{})
+	signed := make(map[uint64]string)
 	for _, nonce := range []uint64{101, 102} {
 		tx := tc.newTxBuilder().
 			SetExpiringNonce(nonce).
@@ -1083,15 +1084,34 @@ func TestIntegration_T12ExpiringNonceDiscriminators(t *testing.T) {
 			SetGas(counterGasLimit).
 			AddCall(tc.counterAddress(), big.NewInt(0), incrementSelector).
 			Build()
-
 		require.NoError(t, transaction.SignTransaction(tx, sender))
-		hash, err := tx.Hash()
-		require.NoError(t, err)
-		hashes[hash] = struct{}{}
 
-		tc.sendTxExpectSuccess(tx, "expiring nonce transaction failed")
+		serialized, err := transaction.Serialize(tx, nil)
+		require.NoError(t, err)
+		signed[nonce] = serialized
 	}
-	assert.Len(t, hashes, 2, "distinct nonces must produce distinct transaction hashes")
+
+	// Submit both before waiting so they share the pool and validity window.
+	hashes := make(map[string]struct{})
+	for _, nonce := range []uint64{101, 102} {
+		txHash, err := tc.client.SendRawTransaction(tc.ctx, signed[nonce])
+		require.NoError(t, err, "nonce %d rejected", nonce)
+		hashes[txHash] = struct{}{}
+	}
+	require.Len(t, hashes, 2, "distinct nonces must produce distinct transaction hashes")
+
+	for txHash := range hashes {
+		receipt := tc.waitForReceipt(txHash)
+		require.NotNil(t, receipt, "missing receipt for %s", txHash)
+		require.Equal(t, "0x1", receipt["status"], "transaction %s failed", txHash)
+		tc.counterValue++
+	}
+	tc.assertCounterValue()
+
+	// Replaying nonce 101 within its validity window must be rejected.
+	_, err := tc.client.SendRawTransaction(tc.ctx, signed[101])
+	require.Error(t, err, "replayed expiring nonce transaction was accepted")
+	tc.assertCounterValue()
 }
 
 // TestIntegration_KeychainWithLimits tests authorizeKey with enforceLimits=true and a non-empty TokenLimit[]

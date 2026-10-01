@@ -17,7 +17,7 @@ type Tx struct {
 	Gas                  uint64         `json:"gas"`
 	Calls                []Call         `json:"calls"`
 	AccessList           AccessList     `json:"accessList"`
-	NonceKey             *big.Int       `json:"nonceKey"`    // 192-bit sequence key for 2D nonce system
+	NonceKey             *big.Int       `json:"nonceKey"`    // uint256 nonce key: 2D sequence key, or ExpiringNonceKey for expiring nonces
 	Nonce                uint64         `json:"nonce"`       // Current value of the sequence key
 	ValidBefore          uint64         `json:"validBefore"` // Optional expiration timestamp
 	ValidAfter           uint64         `json:"validAfter"`  // Optional activation timestamp
@@ -114,16 +114,19 @@ func NewDefault(chainID int64) *Tx {
 	return tx
 }
 
-// ExpiringNonceKey returns the nonce key that marks an expiring nonce
+// expiringNonceKey is 2^256 - 1, the nonce key that marks an expiring nonce transaction.
+var expiringNonceKey = new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1))
+
+// ExpiringNonceKey returns a copy of the nonce key that marks an expiring nonce
 // transaction (TIP-1009): 2^256 - 1. Expiring nonce transactions use
 // validBefore for replay protection instead of sequential nonce state.
 func ExpiringNonceKey() *big.Int {
-	return new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1))
+	return new(big.Int).Set(expiringNonceKey)
 }
 
 // IsExpiringNonce reports whether the transaction uses the expiring nonce key.
 func (tx *Tx) IsExpiringNonce() bool {
-	return tx.NonceKey != nil && tx.NonceKey.Cmp(ExpiringNonceKey()) == 0
+	return tx.NonceKey != nil && tx.NonceKey.Cmp(expiringNonceKey) == 0
 }
 
 // HasFeePayerSignature returns true if the transaction has a fee payer signature.
@@ -195,6 +198,10 @@ func (tx *Tx) Validate() error {
 
 	if tx.NonceKey == nil {
 		return fmt.Errorf("%w: nonce key must be set", ErrInvalidTransaction)
+	}
+
+	if tx.IsExpiringNonce() && tx.ValidBefore == 0 {
+		return fmt.Errorf("%w: expiring nonce transaction must set validBefore", ErrInvalidTransaction)
 	}
 
 	return nil
