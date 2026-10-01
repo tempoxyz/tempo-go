@@ -1,4 +1,4 @@
-// changelogs:version 0.5.0
+// changelogs:version 0.6.0
 module github.com/tempoxyz/tempo-go
 
 go 1.25.9
