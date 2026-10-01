@@ -24,6 +24,48 @@ func TestTransactionBuilder_SetNonceKey(t *testing.T) {
 	assert.Equal(t, 0, tx.NonceKey.Cmp(big.NewInt(123)))
 }
 
+func TestTransactionBuilder_SetExpiringNonce(t *testing.T) {
+	tx := NewBuilder(big.NewInt(42424)).
+		SetExpiringNonce(101).
+		SetValidBefore(1000000).
+		Build()
+
+	assert.True(t, tx.IsExpiringNonce())
+	assert.Equal(t, 0, tx.NonceKey.Cmp(ExpiringNonceKey()))
+	assert.Equal(t, uint64(101), tx.Nonce)
+}
+
+func TestTransactionBuilder_ExpiringNonceDiscriminatorsDiffer(t *testing.T) {
+	build := func(nonce uint64) *Tx {
+		return NewBuilder(big.NewInt(42424)).
+			SetGas(100000).
+			SetMaxFeePerGas(big.NewInt(20000000000)).
+			SetExpiringNonce(nonce).
+			SetValidBefore(1000000).
+			AddCall(common.HexToAddress("0x1111111111111111111111111111111111111111"), big.NewInt(0), []byte{0x01}).
+			Build()
+	}
+
+	first, err := SerializeForSigning(build(101))
+	assert.NoError(t, err)
+	second, err := SerializeForSigning(build(102))
+	assert.NoError(t, err)
+	assert.NotEqual(t, first, second)
+
+	serialized, err := Serialize(build(102), nil)
+	assert.NoError(t, err)
+	decoded, err := Deserialize(serialized)
+	assert.NoError(t, err)
+	assert.True(t, decoded.IsExpiringNonce())
+	assert.Equal(t, uint64(102), decoded.Nonce)
+}
+
+func TestTransaction_IsExpiringNonce(t *testing.T) {
+	assert.False(t, New().IsExpiringNonce())
+	assert.False(t, (&Tx{}).IsExpiringNonce())
+	assert.Equal(t, 256, ExpiringNonceKey().BitLen())
+}
+
 func TestTransactionBuilder_SetValidBefore(t *testing.T) {
 	builder := NewBuilder(big.NewInt(42424))
 	builder.SetValidBefore(1000000)

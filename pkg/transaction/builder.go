@@ -67,6 +67,19 @@ func (b *Builder) SetNonceKey(nonceKey *big.Int) *Builder {
 	return b
 }
 
+// SetExpiringNonce marks the transaction as an expiring nonce transaction and
+// sets its nonce discriminator. Pair it with SetValidBefore.
+//
+// From T12 (TIP-1106), the nonce of an expiring nonce transaction is an opaque
+// uint64 discriminator: distinct values let otherwise identical transactions be
+// submitted in parallel within the same validity window. Before T12 the network
+// requires nonce == 0.
+func (b *Builder) SetExpiringNonce(nonce uint64) *Builder {
+	b.tx.NonceKey = ExpiringNonceKey()
+	b.tx.Nonce = nonce
+	return b
+}
+
 // SetValidBefore sets the expiration timestamp for the transaction.
 func (b *Builder) SetValidBefore(validBefore uint64) *Builder {
 	b.tx.ValidBefore = validBefore

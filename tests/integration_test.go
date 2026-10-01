@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -76,26 +77,26 @@ func isT2() bool {
 	return hardfork == "T2"
 }
 
+// isAtLeast reports whether TEMPO_HARDFORK is "T<n>" or a later T-series fork.
+func isAtLeast(n int) bool {
+	fork, err := strconv.Atoi(strings.TrimPrefix(hardfork, "T"))
+	return err == nil && fork >= n
+}
+
 func isT5OrLater() bool {
-	switch hardfork {
-	case "T5", "T6", "T7", "T8":
-		return true
-	default:
-		return false
-	}
+	return isAtLeast(5)
 }
 
 func isT6OrLater() bool {
-	switch hardfork {
-	case "T6", "T7", "T8":
-		return true
-	default:
-		return false
-	}
+	return isAtLeast(6)
 }
 
 func isT8OrLater() bool {
-	return hardfork == "T8"
+	return isAtLeast(8)
+}
+
+func isT12OrLater() bool {
+	return isAtLeast(12)
 }
 
 // testContext encapsulates common test dependencies and helpers
@@ -1059,6 +1060,38 @@ func TestIntegration_T8CurrentCommittee(t *testing.T) {
 	epoch, publicKeys, err := tc.client.GetCommitteeMembers(tc.ctx)
 	require.NoError(t, err)
 	t.Logf("Current committee epoch %d has %d members", epoch, len(publicKeys))
+}
+
+// TestIntegration_T12ExpiringNonceDiscriminators submits otherwise identical
+// expiring nonce transactions that differ only in their nonce (TIP-1106).
+func TestIntegration_T12ExpiringNonceDiscriminators(t *testing.T) {
+	if !isT12OrLater() {
+		t.Skip("requires TEMPO_HARDFORK=T12 or later and a T12-capable RPC")
+	}
+
+	tc := newTestContext(t)
+	sender := tc.createAndFundSigner()
+	// Finish fixture deployment before starting the transaction validity window.
+	tc.counterAddress()
+	validBefore := uint64(time.Now().Unix() + 25)
+
+	hashes := make(map[common.Hash]struct{})
+	for _, nonce := range []uint64{101, 102} {
+		tx := tc.newTxBuilder().
+			SetExpiringNonce(nonce).
+			SetValidBefore(validBefore).
+			SetGas(counterGasLimit).
+			AddCall(tc.counterAddress(), big.NewInt(0), incrementSelector).
+			Build()
+
+		require.NoError(t, transaction.SignTransaction(tx, sender))
+		hash, err := tx.Hash()
+		require.NoError(t, err)
+		hashes[hash] = struct{}{}
+
+		tc.sendTxExpectSuccess(tx, "expiring nonce transaction failed")
+	}
+	assert.Len(t, hashes, 2, "distinct nonces must produce distinct transaction hashes")
 }
 
 // TestIntegration_KeychainWithLimits tests authorizeKey with enforceLimits=true and a non-empty TokenLimit[]

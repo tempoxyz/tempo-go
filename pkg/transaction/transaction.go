@@ -114,6 +114,18 @@ func NewDefault(chainID int64) *Tx {
 	return tx
 }
 
+// ExpiringNonceKey returns the nonce key that marks an expiring nonce
+// transaction (TIP-1009): 2^256 - 1. Expiring nonce transactions use
+// validBefore for replay protection instead of sequential nonce state.
+func ExpiringNonceKey() *big.Int {
+	return new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1))
+}
+
+// IsExpiringNonce reports whether the transaction uses the expiring nonce key.
+func (tx *Tx) IsExpiringNonce() bool {
+	return tx.NonceKey != nil && tx.NonceKey.Cmp(ExpiringNonceKey()) == 0
+}
+
 // HasFeePayerSignature returns true if the transaction has a fee payer signature.
 func (tx *Tx) HasFeePayerSignature() bool {
 	return tx.FeePayerSignature != nil
