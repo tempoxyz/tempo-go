@@ -18,6 +18,9 @@ const (
 	methodSendRawTransactionSync = "eth_sendRawTransactionSync"
 	defaultTimeout               = 30 * time.Second
 	defaultReceiptPollInterval   = 2 * time.Second
+	// maxResponseBodySize bounds how much of an RPC response is buffered so a
+	// hostile or broken endpoint cannot exhaust memory.
+	maxResponseBodySize = 16 << 20
 )
 
 // Client is a basic HTTP client for interacting with the Tempo blockchain.
@@ -163,7 +166,7 @@ func (c *Client) sendRequest(ctx context.Context, request *JSONRPCRequest) (*JSO
 	}
 	defer httpResp.Body.Close()
 
-	responseBody, err := io.ReadAll(httpResp.Body)
+	responseBody, err := readBounded(httpResp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
@@ -178,6 +181,23 @@ func (c *Client) sendRequest(ctx context.Context, request *JSONRPCRequest) (*JSO
 	}
 
 	return &response, nil
+}
+
+// readBounded reads at most maxResponseBodySize bytes and fails instead of
+// buffering a larger response, so a hostile or broken endpoint cannot exhaust
+// memory and oversized bodies are never echoed into error messages.
+func readBounded(body io.Reader) ([]byte, error) {
+	if body == nil {
+		return nil, nil
+	}
+	raw, err := io.ReadAll(io.LimitReader(body, maxResponseBodySize+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) > maxResponseBodySize {
+		return nil, fmt.Errorf("rpc response body exceeds %d byte limit", maxResponseBodySize)
+	}
+	return raw, nil
 }
 
 // newHTTPRequest creates a new HTTP POST request with JSON content type and optional auth.
@@ -373,7 +393,7 @@ func (c *Client) SendBatch(ctx context.Context, batch *BatchRequest) ([]*JSONRPC
 	}
 	defer httpResp.Body.Close()
 
-	responseBody, err := io.ReadAll(httpResp.Body)
+	responseBody, err := readBounded(httpResp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read batch response body: %w", err)
 	}
