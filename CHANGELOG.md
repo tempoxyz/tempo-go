@@ -1,5 +1,11 @@
 # Changelog
 
+## `github.com/tempoxyz/tempo-go@0.6.1`
+
+### Patch Changes
+
+- Fixed certificate verification for package-registry checks in the release workflow. (by @DerekCofausper, [#120](https://github.com/tempoxyz/tempo-go/pull/120))
+
 ## `github.com/tempoxyz/tempo-go@0.6.0`
 
 ### Minor Changes
