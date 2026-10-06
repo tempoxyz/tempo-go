@@ -2,11 +2,7 @@
 
 ## `github.com/tempoxyz/tempo-go@0.6.1`
 
-### Patch Changes
-
-- Fixed certificate verification for package-registry checks in the release workflow. (by @DerekCofausper, [#120](https://github.com/tempoxyz/tempo-go/pull/120))
-
-## `github.com/tempoxyz/tempo-go@0.6.0`
+First published 0.6.x release. Version 0.6.0 was prepared but not published.
 
 ### Minor Changes
 
@@ -17,6 +13,7 @@
 
 ### Patch Changes
 
+- Fixed certificate verification for package-registry checks in the release workflow. (by @DerekCofausper, [#120](https://github.com/tempoxyz/tempo-go/pull/120))
 - Prevent `Tx.Clone` from panicking when transaction or call `big.Int` fields are nil. (by @BrendanRyan, [#94](https://github.com/tempoxyz/tempo-go/pull/94))
 - Restored live integration test compilation after switching keychain setup to transaction-embedded authorization. (by @DerekCofausper, [#101](https://github.com/tempoxyz/tempo-go/pull/101))
 - Validate token amounts in `KeyRestrictions.Validate` and `UpdateSpendingLimit` so nil, negative, or over-uint256 values return an error instead of panicking inside ABI packing. (by @Alex, [#83](https://github.com/tempoxyz/tempo-go/pull/83))
