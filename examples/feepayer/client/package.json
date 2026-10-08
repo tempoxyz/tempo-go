@@ -9,14 +9,14 @@
     "check": "tsc --noEmit"
   },
   "dependencies": {
-    "@noble/curves": "^2.0.1",
-    "dotenv": "^16.3.1",
-    "tempo.ts": "^0.14.0",
-    "viem": "^2.54.2"
+    "@noble/curves": "^2.4.0",
+    "dotenv": "^18.0.5",
+    "tempo.ts": "^0.14.2",
+    "viem": "^2.57.2"
   },
   "devDependencies": {
-    "@types/node": "^25.2.0",
-    "tsx": "^4.7.0",
-    "typescript": "^5.3.3"
+    "@types/node": "^26.6.3",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
   }
 }
