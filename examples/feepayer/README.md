@@ -66,7 +66,7 @@ pnpm install
 
 ```env
 TEMPO_CLIENT_PRIVATE_KEY=0x...
-FEE_PAYER_SERVER_URL=http://localhost:3000
+FEE_PAYER_SERVER_URL=http://127.0.0.1:3000
 ```
 
 1. Run the client:

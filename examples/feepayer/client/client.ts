@@ -16,6 +16,7 @@ async function main() {
 
   const chain = {
     ...tempoModerato,
+    id: config.chainId,
     feeToken: config.alphaUsdAddress,
     rpcUrls: {
       default: {
