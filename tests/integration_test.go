@@ -229,19 +229,14 @@ func (tc *testContext) fundAddress(address common.Address) {
 		uint256ToBytes32(fundAmount),
 	)
 
-	for _, token := range []common.Address{nativeFeeToken, alphaUSD, betaUSD, thetaUSD} {
-		simulation, err := tc.client.SendRequest(tc.ctx, "eth_call", map[string]string{
-			"from": devSigner.Address().Hex(), "to": token.Hex(),
-			"data": "0x" + hex.EncodeToString(transferCalldata),
-		}, "latest")
-		require.NoError(tc.t, err)
-		require.NoError(tc.t, simulation.CheckError(), "funding preflight for token %s: %#v", token.Hex(), simulation.Error)
-	}
+	gas, err := tc.estimateFundingGas(devSigner.Address(), transferCalldata)
+	require.NoError(tc.t, err)
+	tc.t.Logf("Estimated funding gas limit: %d", gas)
 
 	nonce := tc.getNonce(devSigner.Address())
 	tx := tc.newTxBuilder().
 		SetNonce(nonce).
-		SetGas(500000).
+		SetGas(gas).
 		AddCall(nativeFeeToken, big.NewInt(0), transferCalldata).
 		AddCall(alphaUSD, big.NewInt(0), transferCalldata).
 		AddCall(betaUSD, big.NewInt(0), transferCalldata).
@@ -262,12 +257,47 @@ func (tc *testContext) fundAddress(address common.Address) {
 	tc.waitForBalance(address)
 }
 
+// estimateFundingGas accounts for the active fork's costs for all four transfers.
+func (tc *testContext) estimateFundingGas(from common.Address, calldata []byte) (uint64, error) {
+	calls := make([]map[string]string, 0, 4)
+	for _, token := range []common.Address{nativeFeeToken, alphaUSD, betaUSD, thetaUSD} {
+		calls = append(calls, map[string]string{
+			"to": token.Hex(), "value": "0x0", "input": "0x" + hex.EncodeToString(calldata),
+		})
+	}
+	response, err := tc.client.SendRequest(tc.ctx, "eth_estimateGas", map[string]interface{}{
+		"type": "0x76", "from": from.Hex(), "calls": calls,
+	})
+	if err != nil {
+		return 0, err
+	}
+	if err := response.CheckError(); err != nil {
+		return 0, fmt.Errorf("estimate funding gas: %w", err)
+	}
+	quantity, ok := response.Result.(string)
+	if !ok || !strings.HasPrefix(quantity, "0x") {
+		return 0, fmt.Errorf("invalid funding gas estimate")
+	}
+	estimate, ok := new(big.Int).SetString(quantity[2:], 16)
+	if !ok || estimate.Sign() <= 0 {
+		return 0, fmt.Errorf("invalid funding gas estimate")
+	}
+	// Leave room for state changes between estimation and inclusion.
+	estimate.Mul(estimate, big.NewInt(6))
+	estimate.Div(estimate, big.NewInt(5))
+	estimate.Add(estimate, big.NewInt(10000))
+	if !estimate.IsUint64() {
+		return 0, fmt.Errorf("funding gas estimate overflows uint64")
+	}
+	return estimate.Uint64(), nil
+}
+
 // requireFundingReceipt fails setup immediately when funding did not succeed.
 func (tc *testContext) requireFundingReceipt(hash string) {
 	tc.t.Helper()
 	receipt := tc.waitForReceipt(hash)
 	require.NotNil(tc.t, receipt, "funding receipt unavailable: %s", hash)
-	require.Equal(tc.t, "0x1", receipt["status"], "funding reverted: %s", hash)
+	require.Equal(tc.t, "0x1", receipt["status"], "funding reverted: %s (gas used: %v)", hash, receipt["gasUsed"])
 }
 
 // createAndFundSigner creates a new signer and funds it
