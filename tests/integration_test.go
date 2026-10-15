@@ -213,6 +213,9 @@ func (tc *testContext) fundAddress(address common.Address) {
 		}
 	}
 
+	if err == nil && resp.Error != nil {
+		tc.t.Logf("Faucet RPC failure: %v", resp.Error)
+	}
 	// Fallback: fund via TIP-20 transfer from the dev account
 	tc.t.Logf("tempo_fundAddress unavailable, funding %s via dev account TIP-20 transfer", address.Hex())
 	devSigner, err := signer.NewSigner(devKeyPrivate)
@@ -232,7 +235,7 @@ func (tc *testContext) fundAddress(address common.Address) {
 			"data": "0x" + hex.EncodeToString(transferCalldata),
 		}, "latest")
 		require.NoError(tc.t, err)
-		require.NoError(tc.t, simulation.CheckError(), "funding preflight for token %s", token.Hex())
+		require.NoError(tc.t, simulation.CheckError(), "funding preflight for token %s: %#v", token.Hex(), simulation.Error)
 	}
 
 	nonce := tc.getNonce(devSigner.Address())
