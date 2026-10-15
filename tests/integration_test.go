@@ -226,6 +226,15 @@ func (tc *testContext) fundAddress(address common.Address) {
 		uint256ToBytes32(fundAmount),
 	)
 
+	for _, token := range []common.Address{nativeFeeToken, alphaUSD, betaUSD, thetaUSD} {
+		simulation, err := tc.client.SendRequest(tc.ctx, "eth_call", map[string]string{
+			"from": devSigner.Address().Hex(), "to": token.Hex(),
+			"data": "0x" + hex.EncodeToString(transferCalldata),
+		}, "latest")
+		require.NoError(tc.t, err)
+		require.NoError(tc.t, simulation.CheckError(), "funding preflight for token %s", token.Hex())
+	}
+
 	nonce := tc.getNonce(devSigner.Address())
 	tx := tc.newTxBuilder().
 		SetNonce(nonce).
