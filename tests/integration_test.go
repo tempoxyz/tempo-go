@@ -149,11 +149,14 @@ func fetchGasPrice(t *testing.T, rpcClient *client.Client) *big.Int {
 	return gasPrice
 }
 
-// waitForBalance polls until the address has a non-zero balance
+// waitForBalance checks spendable TIP-20 balances, not the synthetic ETH balance.
 func (tc *testContext) waitForBalance(address common.Address) {
 	tc.t.Helper()
 	for i := 0; i < 60; i++ {
-		resp, err := tc.client.SendRequest(tc.ctx, "eth_getBalance", address.Hex(), "latest")
+		resp, err := tc.client.SendRequest(tc.ctx, "eth_call", map[string]string{
+			"to":   nativeFeeToken.Hex(),
+			"data": "0x" + hex.EncodeToString(encodeCalldata(mustDecodeHex("70a08231"), addressToBytes32(address))),
+		}, "latest")
 		if err == nil && resp.Error == nil {
 			if balanceHex, ok := resp.Result.(string); ok {
 				balance := new(big.Int)
@@ -194,7 +197,7 @@ func (tc *testContext) fundAddress(address common.Address) {
 				tc.t.Logf("Funded address %s via tempo_fundAddress", address.Hex())
 				for _, h := range result {
 					if hash, ok := h.(string); ok {
-						tc.waitForReceipt(hash)
+						tc.requireFundingReceipt(hash)
 					}
 				}
 				tc.waitForBalance(address)
@@ -203,7 +206,7 @@ func (tc *testContext) fundAddress(address common.Address) {
 		case string:
 			if result != "" {
 				tc.t.Logf("Funded address %s via tempo_fundAddress", address.Hex())
-				tc.waitForReceipt(result)
+				tc.requireFundingReceipt(result)
 				tc.waitForBalance(address)
 				return
 			}
@@ -216,7 +219,7 @@ func (tc *testContext) fundAddress(address common.Address) {
 	require.NoError(tc.t, err)
 
 	// Build ERC-20 transfer(address,uint256) calldata to the native fee token
-	fundAmount := new(big.Int).Mul(big.NewInt(1000000000), big.NewInt(1000000000)) // 1e18
+	fundAmount := big.NewInt(10_000_000_000) // 10,000 units of a six-decimal token
 	transferCalldata := encodeCalldata(
 		erc20TransferSelector,
 		addressToBytes32(address),
@@ -226,8 +229,11 @@ func (tc *testContext) fundAddress(address common.Address) {
 	nonce := tc.getNonce(devSigner.Address())
 	tx := tc.newTxBuilder().
 		SetNonce(nonce).
-		SetGas(100000).
+		SetGas(500000).
 		AddCall(nativeFeeToken, big.NewInt(0), transferCalldata).
+		AddCall(alphaUSD, big.NewInt(0), transferCalldata).
+		AddCall(betaUSD, big.NewInt(0), transferCalldata).
+		AddCall(thetaUSD, big.NewInt(0), transferCalldata).
 		Build()
 
 	err = transaction.SignTransaction(tx, devSigner)
@@ -240,8 +246,16 @@ func (tc *testContext) fundAddress(address common.Address) {
 	require.NoError(tc.t, err)
 	tc.t.Logf("Funding tx hash: %s", txHash)
 
-	tc.waitForReceipt(txHash)
+	tc.requireFundingReceipt(txHash)
 	tc.waitForBalance(address)
+}
+
+// requireFundingReceipt fails setup immediately when funding did not succeed.
+func (tc *testContext) requireFundingReceipt(hash string) {
+	tc.t.Helper()
+	receipt := tc.waitForReceipt(hash)
+	require.NotNil(tc.t, receipt, "funding receipt unavailable: %s", hash)
+	require.Equal(tc.t, "0x1", receipt["status"], "funding reverted: %s", hash)
 }
 
 // createAndFundSigner creates a new signer and funds it
