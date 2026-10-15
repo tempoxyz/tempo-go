@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/big"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -114,7 +115,10 @@ type testContext struct {
 func newTestContext(t *testing.T) *testContext {
 	t.Helper()
 	ctx := context.Background()
-	rpcClient := client.New(rpcURL)
+	rpcClient := client.New(rpcURL, client.WithHTTPClient(&http.Client{
+		Timeout:   30 * time.Second,
+		Transport: rateLimitTransport{base: http.DefaultTransport, delay: 250 * time.Millisecond},
+	}))
 
 	id, err := rpcClient.GetChainID(ctx)
 	require.NoError(t, err)
