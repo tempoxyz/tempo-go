@@ -6,6 +6,10 @@ Example fee payer relay server that enables gasless transactions on Tempo.
 
 The server accepts user-signed Type 0x76 transactions, adds its own fee payer signature, and broadcasts the dual-signed transaction to the network. This follows the "sign-and-broadcast" pattern described in the [Tempo fee sponsorship docs](https://docs.tempo.xyz/guide/payments/sponsor-user-fees).
 
+The example binds only to `127.0.0.1`, requires a shared bearer token, and rejects browser-origin requests. It sponsors only zero-native-value `transfer(address,uint256)` calls to the configured token, on the configured chain, with bounded gas and fees. It is not a production sponsorship service.
+
+Set `FEE_PAYER_AUTH_TOKEN` on both server and client to the same random value of at least 32 characters (for example, generate one with `openssl rand -hex 32`). Never publish this token in browser code. Authentication tokens are separate from RPC credentials.
+
 ## How It Works
 
 ```
@@ -62,7 +66,7 @@ pnpm install
 
 ```env
 TEMPO_CLIENT_PRIVATE_KEY=0x...
-FEE_PAYER_SERVER_URL=http://localhost:3000
+FEE_PAYER_SERVER_URL=http://127.0.0.1:3000
 ```
 
 1. Run the client:

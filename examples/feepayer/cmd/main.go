@@ -27,10 +27,9 @@ func main() {
 	)
 
 	feePayerServer := server.NewFeePayerServer(
-		cfg.Port,
+		cfg,
 		sgn,
 		tempoClient,
-		cfg.AlphaUSDAddress,
 	)
 
 	log.Fatal(feePayerServer.Start())

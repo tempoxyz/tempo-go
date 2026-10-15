@@ -5,6 +5,7 @@ export class Config {
   readonly tempoUsername: string;
   readonly tempoPassword: string;
   readonly feePayerServerUrl: string;
+  readonly feePayerAuthToken: string;
   readonly clientPrivateKey: `0x${string}`;
   readonly alphaUsdAddress: `0x${string}`;
   readonly chainId: number;
@@ -14,8 +15,10 @@ export class Config {
     this.chainId = parseInt(process.env.TEMPO_CHAIN_ID || '42431', 10);
     this.tempoUsername = process.env.TEMPO_USERNAME || '';
     this.tempoPassword = process.env.TEMPO_PASSWORD || '';
-    this.feePayerServerUrl = process.env.FEE_PAYER_SERVER_URL || 'http://localhost:3000';
+    this.feePayerServerUrl = process.env.FEE_PAYER_SERVER_URL || 'http://127.0.0.1:3000';
     
+    this.feePayerAuthToken = process.env.FEE_PAYER_AUTH_TOKEN || '';
+    if (this.feePayerAuthToken.length < 32) throw new Error('FEE_PAYER_AUTH_TOKEN must contain at least 32 characters');
     const privateKey = process.env.TEMPO_CLIENT_PRIVATE_KEY;
     if (!privateKey) {
       throw new Error('TEMPO_CLIENT_PRIVATE_KEY environment variable is required');

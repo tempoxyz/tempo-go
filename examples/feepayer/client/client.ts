@@ -1,4 +1,4 @@
-import { createClient, http, walletActions, publicActions } from 'viem';
+import { createClient, http, walletActions, publicActions, encodeFunctionData, erc20Abi } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { tempoModerato } from 'viem/chains';
 import { withFeePayer, tempoActions } from 'viem/tempo';
@@ -16,6 +16,7 @@ async function main() {
 
   const chain = {
     ...tempoModerato,
+    id: config.chainId,
     feeToken: config.alphaUsdAddress,
     rpcUrls: {
       default: {
@@ -35,7 +36,7 @@ async function main() {
           },
         },
       }),
-      http(config.feePayerServerUrl),
+      http(config.feePayerServerUrl, { fetchOptions: { headers: { Authorization: `Bearer ${config.feePayerAuthToken}` } } }),
       { policy: 'sign-and-broadcast' }
     ),
   })
@@ -49,8 +50,8 @@ async function main() {
   console.log('Sending transaction via fee payer relay...');
 
   const hash = await client.sendTransaction({
-    to: '0x0000000000000000000000000000000000000000',
-    data: '0xdeadbeef',
+    to: config.alphaUsdAddress,
+    data: encodeFunctionData({ abi: erc20Abi, functionName: 'transfer', args: [account.address, 0n] }),
     value: 0n,
     feeToken: config.alphaUsdAddress,
     feePayer: true,

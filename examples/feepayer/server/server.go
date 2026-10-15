@@ -2,14 +2,17 @@ package server
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
+	"math/big"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/joho/godotenv"
@@ -25,7 +28,8 @@ const (
 
 // Config holds the configuration for the fee payer server.
 type Config struct {
-	Port int
+	Port      int
+	AuthToken string
 
 	TempoRPCURL   string
 	TempoUsername string
@@ -42,6 +46,7 @@ func LoadConfigFromEnv() (*Config, error) {
 
 	config := &Config{
 		Port:               getEnvInt("FEE_PAYER_PORT", 3000),
+		AuthToken:          getEnv("FEE_PAYER_AUTH_TOKEN", ""),
 		TempoRPCURL:        getEnv("TEMPO_RPC_URL", "https://rpc.moderato.tempo.xyz"),
 		TempoUsername:      getEnv("TEMPO_USERNAME", ""),
 		TempoPassword:      getEnv("TEMPO_PASSWORD", ""),
@@ -59,6 +64,12 @@ func LoadConfigFromEnv() (*Config, error) {
 
 // Validate checks that all required configuration values are set.
 func (c *Config) Validate() error {
+	if len(c.AuthToken) < 32 {
+		return fmt.Errorf("FEE_PAYER_AUTH_TOKEN must contain at least 32 characters")
+	}
+	if !common.IsHexAddress(c.AlphaUSDAddress) {
+		return fmt.Errorf("ALPHAUSD_ADDRESS must be a valid address")
+	}
 	if c.TempoRPCURL == "" {
 		return fmt.Errorf("TEMPO_RPC_URL is required")
 	}
@@ -122,37 +133,46 @@ type FeePayerServer struct {
 	signer       *signer.Signer
 	tempoClient  *client.Client
 	tokenAddress string
+	authToken    string
+	chainID      int
 }
 
 // NewFeePayerServer creates a new fee payer relay server.
-func NewFeePayerServer(port int, sgn *signer.Signer, tempoClient *client.Client, tokenAddress string) *FeePayerServer {
+func NewFeePayerServer(cfg *Config, sgn *signer.Signer, tempoClient *client.Client) *FeePayerServer {
 	return &FeePayerServer{
-		port:         port,
+		port:         cfg.Port,
+		authToken:    cfg.AuthToken,
+		chainID:      cfg.ChainID,
 		signer:       sgn,
 		tempoClient:  tempoClient,
-		tokenAddress: tokenAddress,
+		tokenAddress: cfg.AlphaUSDAddress,
 	}
 }
 
 // Start begins listening for incoming requests.
 func (s *FeePayerServer) Start() error {
-	http.HandleFunc("/", s.handleFeePayerRelay)
+	if len(s.authToken) < 32 {
+		return fmt.Errorf("relay requires an authentication token of at least 32 characters")
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", s.handleFeePayerRelay)
 
-	addr := fmt.Sprintf(":%d", s.port)
+	addr := fmt.Sprintf("127.0.0.1:%d", s.port)
 	log.Printf("Fee Payer Relay Server starting on %s", addr)
 	log.Printf("Fee Payer Address: %s", s.signer.Address().Hex())
 	log.Printf("Token Address: %s", s.tokenAddress)
 
-	return http.ListenAndServe(addr, nil)
+	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second}
+	return srv.ListenAndServe()
 }
 
 func (s *FeePayerServer) handleFeePayerRelay(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-
-	if r.Method == http.MethodOptions {
-		w.WriteHeader(http.StatusOK)
+	if len(s.authToken) < 32 || subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+s.authToken)) != 1 {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if r.Header.Get("Origin") != "" {
+		http.Error(w, "Browser requests are not supported by this example", http.StatusForbidden)
 		return
 	}
 
@@ -161,6 +181,7 @@ func (s *FeePayerServer) handleFeePayerRelay(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		s.sendErrorResponse(w, nil, client.ParseError, "Failed to read request body", http.StatusBadRequest)
@@ -250,6 +271,9 @@ func (s *FeePayerServer) processTransaction(serializedTx, method string) (string
 		return "", fmt.Errorf("failed to verify sender signature: %w", err)
 	}
 
+	if err := s.validateTransaction(tx); err != nil {
+		return "", err
+	}
 	log.Printf("Processing transaction from sender: %s", senderAddr.Hex())
 	tx.From = senderAddr // Set sender address so AddFeePayerSignature doesn't try to recover it
 
@@ -316,4 +340,40 @@ func (s *FeePayerServer) sendJSONResponse(w http.ResponseWriter, response *clien
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		log.Printf("Failed to encode response: %v", err)
 	}
+}
+
+// validateTransaction limits the example to bounded transfers of its configured token.
+func (s *FeePayerServer) validateTransaction(tx *transaction.Tx) error {
+	if tx.ChainID == nil || tx.ChainID.Cmp(big.NewInt(int64(s.chainID))) != 0 {
+		return fmt.Errorf("transaction chain does not match relay")
+	}
+	if tx.Gas == 0 || tx.Gas > 2_000_000 {
+		return fmt.Errorf("transaction gas exceeds relay policy")
+	}
+	if tx.MaxFeePerGas == nil || tx.MaxFeePerGas.Sign() <= 0 || tx.MaxFeePerGas.Cmp(big.NewInt(100_000_000_000)) > 0 {
+		return fmt.Errorf("transaction fee exceeds relay policy")
+	}
+	if tx.MaxPriorityFeePerGas == nil || tx.MaxPriorityFeePerGas.Sign() < 0 || tx.MaxPriorityFeePerGas.Cmp(tx.MaxFeePerGas) > 0 {
+		return fmt.Errorf("invalid priority fee")
+	}
+	cost := new(big.Int).Mul(new(big.Int).SetUint64(tx.Gas), tx.MaxFeePerGas)
+	if cost.Cmp(big.NewInt(50_000_000_000_000_000)) > 0 {
+		return fmt.Errorf("transaction total fee exceeds relay policy")
+	}
+	if len(tx.KeyAuthorization) != 0 {
+		return fmt.Errorf("relay does not sponsor key authorizations")
+	}
+	if len(tx.Calls) != 1 {
+		return fmt.Errorf("relay only sponsors one token transfer")
+	}
+	call := tx.Calls[0]
+	if call.To == nil || *call.To != common.HexToAddress(s.tokenAddress) || (call.Value != nil && call.Value.Sign() != 0) || len(call.Data) != 68 || string(call.Data[:4]) != "\xa9\x05\x9c\xbb" {
+		return fmt.Errorf("relay only sponsors transfers of its configured token")
+	}
+	for _, b := range call.Data[4:16] {
+		if b != 0 {
+			return fmt.Errorf("transfer recipient is not canonically encoded")
+		}
+	}
+	return nil
 }
