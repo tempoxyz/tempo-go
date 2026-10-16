@@ -1,5 +1,11 @@
 # Changelog
 
+## `github.com/tempoxyz/tempo-go@0.6.2`
+
+### Patch Changes
+
+- Required bearer authentication for the loopback-only fee-payer example and restricted sponsorship to bounded token transfers. (by @BrendanRyan, [#123](https://github.com/tempoxyz/tempo-go/pull/123))
+
 ## `github.com/tempoxyz/tempo-go@0.6.1`
 
 First published 0.6.x release. Version 0.6.0 was prepared but not published.
