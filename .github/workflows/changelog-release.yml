@@ -35,6 +35,6 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
           persist-credentials: false
 
-      - uses: tempoxyz/changelogs@b810ec2bdffd21f0d14a4709b4b8ab6f75715246 # System CA verification for package-registry checks
+      - uses: tempoxyz/changelogs@cdd0dd01199fd0d23b5d8bec7cf5dbe79d242dc0 # System CA verification for package-registry checks
         with:
           github-token: ${{ steps.app-token.outputs.token }}
