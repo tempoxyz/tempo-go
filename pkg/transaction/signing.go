@@ -1,7 +1,9 @@
 package transaction
 
 import (
+	"encoding/hex"
 	"fmt"
+	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -10,8 +12,14 @@ import (
 
 // ComputeHash computes the Keccak256 hash of a serialized transaction.
 // This is useful for verifying transaction hashes or implementing custom signing logic.
+//
+// The input must be hex-encoded (the "0x" prefix is optional). A serialized Tempo
+// transaction is always hex, so the input is decoded strictly: a non-hex string is
+// rejected rather than being hashed as its raw UTF-8 bytes. The previous behavior
+// (via common.ParseHexOrString) silently fell back to hashing the literal string
+// when the "0x" prefix was missing, yielding a wrong-but-plausible hash with no error.
 func ComputeHash(serialized string) (common.Hash, error) {
-	serializedBytes, err := common.ParseHexOrString(serialized)
+	serializedBytes, err := hex.DecodeString(strings.TrimPrefix(serialized, "0x"))
 	if err != nil {
 		return common.Hash{}, fmt.Errorf("failed to parse serialized transaction: %w", err)
 	}
