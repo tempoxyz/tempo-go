@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { alphausd } from 'viem/tokens'
 
 export class Config {
   readonly tempoRpcUrl: string;
@@ -24,7 +25,7 @@ export class Config {
       throw new Error('TEMPO_CLIENT_PRIVATE_KEY environment variable is required');
     }
     this.clientPrivateKey = privateKey as `0x${string}`;
-    this.alphaUsdAddress = (process.env.ALPHAUSD_ADDRESS || '0x20c0000000000000000000000000000000000001') as `0x${string}`;
+    this.alphaUsdAddress = (process.env.ALPHAUSD_ADDRESS || alphausd(42431).address) as `0x${string}`;
   }
 
   /**
