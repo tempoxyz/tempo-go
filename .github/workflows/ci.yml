@@ -19,7 +19,7 @@ jobs:
       id-token: write
     strategy:
       matrix:
-        go-version: ['1.25.x', '1.26.x']
+        go-version: ['1.26.10', '1.27.3']
 
     steps:
     - name: Secure runner
@@ -76,7 +76,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
-        go-version: '1.25.x'
+        go-version: '1.26.10'
 
     - name: Download dependencies
       run: go mod download
@@ -136,7 +136,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
-        go-version: '1.25.x'
+        go-version: '1.26.10'
 
     - name: Download dependencies
       run: go mod download
@@ -169,7 +169,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
-        go-version: '1.25.x'
+        go-version: '1.26.10'
 
     - name: Download dependencies
       run: go mod download
