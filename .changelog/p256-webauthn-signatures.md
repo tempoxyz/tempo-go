@@ -1,0 +1,5 @@
+---
+github.com/tempoxyz/tempo-go: minor
+---
+
+Added P256 and WebAuthn signing and verification, matching viem's tempo Accounts byte for byte: `signer.P256Signer` and `signer.WebAuthnSigner` (headless, like `Account.fromP256` and `Account.fromHeadlessWebAuthn`), the `signer.EnvelopeSigner` interface (also implemented by `signer.Signer`), and `signer.RecoverEnvelope`, which verifies any Tempo signature envelope (secp256k1, P256, WebAuthn, Keychain V1 and V2 with any inner signature) as tempo-primitives does. Added `transaction.SignTransactionWith` and `transaction.RecoverSigner`; `transaction.VerifySignature` now verifies P256 and WebAuthn senders. Added `keychain.SignWithAccessKeyEnvelope` for P256 and WebAuthn access keys, `KeyAuthorization.SignWith` for any root key and `keychain.NewKeyAuthorizationFor`; `keychain.VerifyAccessKeySignature` accepts Keychain V1 and any inner signature. Transactions now decode Keychain V1 envelopes and Keychain envelopes with P256 or WebAuthn inner signatures.

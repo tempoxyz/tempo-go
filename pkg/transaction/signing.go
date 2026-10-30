@@ -104,16 +104,30 @@ func AddFeePayerSignature(tx *Tx, sgn *signer.Signer) error {
 	return nil
 }
 
-// VerifySignature verifies the sender signature on a transaction.
-// Only secp256k1 signatures can be verified via ecrecover. For P256, WebAuthn,
-// or Keychain signatures, use on-chain verification via the Account Keychain precompile.
+// VerifySignature verifies the sender signature on a transaction and returns
+// the sender: the recovered secp256k1 address, or the address of the public
+// key of a P256 or WebAuthn signature. Keychain (access key) signatures are
+// rejected with ErrUnsupportedSignatureType: verify them with RecoverSigner or
+// keychain.VerifyAccessKeySignature, then check the key's authorization on
+// chain.
 func VerifySignature(tx *Tx) (common.Address, error) {
 	if tx.Signature == nil {
 		return common.Address{}, ErrNoSignature
 	}
 
+	if tx.Signature.Type == SignatureTypeP256 || tx.Signature.Type == SignatureTypeWebAuthn {
+		if tx.Signature.Raw == nil {
+			return common.Address{}, fmt.Errorf("%s signature envelope has no raw bytes", tx.Signature.Type)
+		}
+		recovered, err := RecoverSigner(tx)
+		if err != nil {
+			return common.Address{}, fmt.Errorf("failed to verify %s signature: %w", tx.Signature.Type, err)
+		}
+		return recovered.Account, nil
+	}
+
 	if tx.Signature.Type != "" && tx.Signature.Type != SignatureTypeSecp256k1 {
-		return common.Address{}, fmt.Errorf("%w: %s (only secp256k1 can be verified off-chain)",
+		return common.Address{}, fmt.Errorf("%w: %s (verify with RecoverSigner)",
 			ErrUnsupportedSignatureType, tx.Signature.Type)
 	}
 
