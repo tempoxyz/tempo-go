@@ -176,6 +176,9 @@ func (s *WebAuthnSigner) SignEnvelope(hash common.Hash) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	if len(authenticatorData)+len(clientDataJSON)+128 > MaxWebAuthnSignatureLength {
+		return nil, fmt.Errorf("%w: WebAuthn assertion exceeds %d bytes (origin too long)", ErrInvalidEnvelope, MaxWebAuthnSignatureLength)
+	}
 	out := make([]byte, 0, 1+len(authenticatorData)+len(clientDataJSON)+128)
 	out = append(out, SignatureTypeWebAuthn)
 	out = append(out, authenticatorData...)

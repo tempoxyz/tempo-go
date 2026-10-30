@@ -173,3 +173,70 @@ func TestSignTransactionWith_Secp256k1MatchesSignTransaction(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, s.Address(), sender)
 }
+
+// An envelope labelled p256 or webauthn that holds a Keychain envelope (whose
+// account would be attacker-chosen) is not a verified primitive sender.
+func TestVerifySignature_RejectsMislabelledKeychain(t *testing.T) {
+	v := loadViemTransactions(t)
+	tx, err := Deserialize(v.P256AccessKey.Serialized)
+	require.NoError(t, err)
+	keychainRaw := tx.Signature.Raw
+	for _, label := range []string{SignatureTypeP256, SignatureTypeWebAuthn} {
+		tx.Signature = &signer.SignatureEnvelope{Type: label, Raw: keychainRaw}
+		_, err := VerifySignature(tx)
+		assert.ErrorIs(t, err, ErrUnsupportedSignatureType, label)
+	}
+	p256Tx, err := Deserialize(v.P256Root.Serialized)
+	require.NoError(t, err)
+	p256Tx.Signature.Type = SignatureTypeWebAuthn
+	_, err = VerifySignature(p256Tx)
+	assert.ErrorIs(t, err, ErrUnsupportedSignatureType, "a P256 signature labelled webauthn")
+}
+
+// A sponsored P256 or WebAuthn transaction decoded on the fee payer's side
+// (From unset) is co-signed for the sender its signature recovers to.
+func TestAddFeePayerSignature_RecoversP256AndWebAuthnSenders(t *testing.T) {
+	v := loadViemTransactions(t)
+	feePayer, err := signer.NewSigner("0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d")
+	require.NoError(t, err)
+	for name, vector := range map[string]viemTransaction{"p256": v.P256Root, "webauthn": v.WebAuthnRoot} {
+		t.Run(name, func(t *testing.T) {
+			tx, err := Deserialize(vector.Serialized)
+			require.NoError(t, err)
+			require.Equal(t, common.Address{}, tx.From)
+			require.NoError(t, AddFeePayerSignature(tx, feePayer))
+			assert.Equal(t, vector.Sender, tx.From)
+			payer, err := VerifyFeePayerSignature(tx, vector.Sender)
+			require.NoError(t, err)
+			assert.Equal(t, feePayer.Address(), payer)
+		})
+	}
+	keychainTx, err := Deserialize(v.P256AccessKey.Serialized)
+	require.NoError(t, err)
+	assert.Error(t, AddFeePayerSignature(keychainTx, feePayer), "a keychain sender must be set explicitly")
+}
+
+// externalSecp256k1 is a secp256k1 EnvelopeSigner that is not *signer.Signer,
+// as a KMS or hardware wrapper would be.
+type externalSecp256k1 struct{ inner *signer.Signer }
+
+func (e externalSecp256k1) Address() common.Address { return e.inner.Address() }
+func (e externalSecp256k1) KeyType() uint8          { return signer.KeyTypeSecp256k1 }
+func (e externalSecp256k1) SignEnvelope(hash common.Hash) ([]byte, error) {
+	return e.inner.SignEnvelope(hash)
+}
+
+func TestSignTransactionWith_ExternalSecp256k1Signer(t *testing.T) {
+	s, err := signer.NewSigner("0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
+	require.NoError(t, err)
+	v := loadViemTransactions(t)
+	base, err := Deserialize(v.P256Root.Serialized)
+	require.NoError(t, err)
+	base.Signature = nil
+
+	a, b := base.Clone(), base.Clone()
+	require.NoError(t, SignTransaction(a, s))
+	require.NoError(t, SignTransactionWith(b, externalSecp256k1{s}))
+	assert.Equal(t, SignatureTypeSecp256k1, b.Signature.Type)
+	assert.Equal(t, a.Signature, b.Signature)
+}

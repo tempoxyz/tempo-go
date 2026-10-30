@@ -24,11 +24,27 @@ func SignTransactionWith(tx *Tx, s signer.EnvelopeSigner) error {
 	if err != nil {
 		return fmt.Errorf("failed to sign transaction: %w", err)
 	}
-	signatureType := SignatureTypeP256
-	if s.KeyType() == signer.KeyTypeWebAuthn {
-		signatureType = SignatureTypeWebAuthn
+	switch s.KeyType() {
+	case signer.KeyTypeSecp256k1:
+		// Any secp256k1 signer (a KMS or hardware wrapper): a parsed
+		// signature, as SignTransaction sets.
+		decoded, err := decodeSignatureEnvelope(envelope)
+		if err != nil || decoded.Type != SignatureTypeSecp256k1 {
+			return fmt.Errorf("secp256k1 signer returned an invalid signature")
+		}
+		tx.Signature = decoded
+	case signer.KeyTypeP256, signer.KeyTypeWebAuthn:
+		signatureType := SignatureTypeP256
+		if s.KeyType() == signer.KeyTypeWebAuthn {
+			signatureType = SignatureTypeWebAuthn
+		}
+		if err := signer.ValidatePrimitive(envelope); err != nil || envelope[0] == 0 {
+			return fmt.Errorf("%s signer returned an invalid signature: %v", signatureType, err)
+		}
+		tx.Signature = &signer.SignatureEnvelope{Type: signatureType, Raw: envelope}
+	default:
+		return fmt.Errorf("%w: key type %d", ErrUnsupportedSignatureType, s.KeyType())
 	}
-	tx.Signature = &signer.SignatureEnvelope{Type: signatureType, Raw: envelope}
 	tx.From = s.Address()
 	return nil
 }

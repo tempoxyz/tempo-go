@@ -49,6 +49,11 @@ func (a *KeyAuthorization) SignWith(s signer.EnvelopeSigner) ([]interface{}, err
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign key authorization: %w", err)
 	}
+	// Key authorizations carry secp256k1 recovery ids as 27/28.
+	if s.KeyType() == signer.KeyTypeSecp256k1 && len(signature) == secp256k1SignatureLength && signature[64] < 27 {
+		signature = append([]byte{}, signature...)
+		signature[64] += 27
+	}
 	return a.BuildSigned(signature)
 }
 

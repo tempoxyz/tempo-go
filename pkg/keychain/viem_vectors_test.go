@@ -154,3 +154,56 @@ func TestVerifyAccessKeySignature_RejectsPrimitiveSignatures(t *testing.T) {
 	_, _, err = VerifyAccessKeySignature(tx)
 	assert.Error(t, err)
 }
+
+// A V1 envelope's inner signature does not commit to the account, so
+// VerifyAccessKeySignature rejects it (RecoverSigner still reports it).
+func TestVerifyAccessKeySignature_RejectsKeychainV1(t *testing.T) {
+	v, _, p256, _ := loadViemKeychainVectors(t)
+	tx, err := transaction.Deserialize(v.P256AccessKeyTx.Serialized)
+	require.NoError(t, err)
+	unsigned := tx.Clone()
+	unsigned.Signature = nil
+	hash, err := transaction.GetSignPayload(unsigned)
+	require.NoError(t, err)
+	inner, err := p256.SignEnvelope(hash)
+	require.NoError(t, err)
+	envelope, err := signer.BuildKeychainEnvelope(signer.SignatureTypeKeychainV1, v.RootAddress, inner)
+	require.NoError(t, err)
+	tx.Signature = &signer.SignatureEnvelope{Type: "keychain", Raw: envelope}
+
+	recovered, err := transaction.RecoverSigner(tx)
+	require.NoError(t, err)
+	assert.Equal(t, signer.SignatureTypeKeychainV1, recovered.Keychain)
+	_, _, err = VerifyAccessKeySignature(tx)
+	assert.ErrorContains(t, err, "V2")
+}
+
+func TestIsKeychainSignature_AnyInnerSignature(t *testing.T) {
+	v, _, _, _ := loadViemKeychainVectors(t)
+	tx, err := transaction.Deserialize(v.P256AccessKeyTx.Serialized)
+	require.NoError(t, err)
+	assert.True(t, IsKeychainSignature(tx.Signature.Raw))
+	assert.NoError(t, ValidateAccessKeySignature(tx.Signature.Raw))
+
+	v1 := append([]byte{0x03}, tx.Signature.Raw[1:]...)
+	assert.False(t, IsKeychainSignature(v1))
+	assert.False(t, IsKeychainSignature(tx.Signature.Raw[:100]))
+	assert.False(t, IsKeychainSignature(nil))
+}
+
+type externalSecp256k1 struct{ inner *signer.Signer }
+
+func (e externalSecp256k1) Address() common.Address { return e.inner.Address() }
+func (e externalSecp256k1) KeyType() uint8          { return signer.KeyTypeSecp256k1 }
+func (e externalSecp256k1) SignEnvelope(hash common.Hash) ([]byte, error) {
+	return e.inner.SignEnvelope(hash)
+}
+
+func TestKeyAuthorization_SignWithExternalSecp256k1Root(t *testing.T) {
+	v, root, p256, _ := loadViemKeychainVectors(t)
+	signed, err := NewKeyAuthorizationFor(42431, p256).WithExpiry(4102444800).SignWith(externalSecp256k1{root})
+	require.NoError(t, err)
+	encoded, err := rlp.EncodeToBytes(signed)
+	require.NoError(t, err)
+	assert.Equal(t, hexutil.Encode(v.P256Auth.Serialized), hexutil.Encode(encoded))
+}

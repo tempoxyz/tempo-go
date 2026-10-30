@@ -1,6 +1,7 @@
 package signer
 
 import (
+	"bytes"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/sha256"
@@ -9,7 +10,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math/big"
+	"unicode/utf8"
 
 	"github.com/ethereum/go-ethereum/common"
 	gethcrypto "github.com/ethereum/go-ethereum/crypto"
@@ -219,20 +222,78 @@ func webAuthnMessage(data []byte, challenge common.Hash) ([32]byte, error) {
 		return [32]byte{}, fmt.Errorf("%w: WebAuthn extensions are not supported", ErrInvalidEnvelope)
 	}
 	authenticatorData, clientDataJSON := data[:minAuthenticatorDataLength], data[minAuthenticatorDataLength:]
-	var clientData struct {
-		Type      string `json:"type"`
-		Challenge string `json:"challenge"`
+	clientType, challengeValue, err := parseClientData(clientDataJSON)
+	if err != nil {
+		return [32]byte{}, err
 	}
-	if err := json.Unmarshal(clientDataJSON, &clientData); err != nil {
-		return [32]byte{}, fmt.Errorf("%w: clientDataJSON is not valid JSON", ErrInvalidEnvelope)
-	}
-	if clientData.Type != "webauthn.get" {
+	if clientType != "webauthn.get" {
 		return [32]byte{}, fmt.Errorf("%w: clientDataJSON type must be webauthn.get", ErrInvalidEnvelope)
 	}
-	if clientData.Challenge != base64URL(challenge.Bytes()) {
+	if challengeValue != base64URL(challenge.Bytes()) {
 		return [32]byte{}, fmt.Errorf("%w: WebAuthn challenge does not match", ErrInvalidEnvelope)
 	}
 	return WebAuthnMessageHash(authenticatorData, clientDataJSON), nil
+}
+
+// parseClientData reads the "type" and "challenge" fields of a
+// clientDataJSON exactly as tempo-primitives' serde struct does: one JSON
+// object with valid UTF-8 keys, field names matched exactly (not case-insensitively),
+// unknown fields ignored, each of the two fields present once, and their
+// values plain strings without escape sequences (serde borrows them).
+func parseClientData(data []byte) (clientType, challenge string, err error) {
+	invalid := func(reason string) (string, string, error) {
+		return "", "", fmt.Errorf("%w: clientDataJSON %s", ErrInvalidEnvelope, reason)
+	}
+	dec := json.NewDecoder(bytes.NewReader(data))
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+		return invalid("is not a JSON object")
+	}
+	var haveType, haveChallenge bool
+	for dec.More() {
+		start := dec.InputOffset()
+		keyToken, err := dec.Token()
+		if err != nil {
+			return invalid("is not valid JSON")
+		}
+		// serde validates the UTF-8 of every key (and of the two fields it
+		// reads) but skips ignored values without validating them.
+		if !utf8.Valid(data[start:dec.InputOffset()]) {
+			return invalid("has a key that is not valid UTF-8")
+		}
+		key, _ := keyToken.(string)
+		var raw json.RawMessage
+		if err := dec.Decode(&raw); err != nil {
+			return invalid("is not valid JSON")
+		}
+		if key != "type" && key != "challenge" {
+			continue
+		}
+		if len(raw) < 2 || raw[0] != '"' || bytes.IndexByte(raw, '\\') >= 0 || !utf8.Valid(raw) {
+			return invalid("field " + key + " must be a string without escapes")
+		}
+		value := string(raw[1 : len(raw)-1])
+		if key == "type" {
+			if haveType {
+				return invalid("has a duplicate type field")
+			}
+			haveType, clientType = true, value
+		} else {
+			if haveChallenge {
+				return invalid("has a duplicate challenge field")
+			}
+			haveChallenge, challenge = true, value
+		}
+	}
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('}') {
+		return invalid("is not valid JSON")
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return invalid("has trailing data")
+	}
+	if !haveType || !haveChallenge {
+		return invalid("is missing type or challenge")
+	}
+	return clientType, challenge, nil
 }
 
 func base64URL(b []byte) string { return base64.RawURLEncoding.EncodeToString(b) }

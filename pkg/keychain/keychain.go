@@ -154,9 +154,11 @@ func ParseKeychainSignature(sig []byte) (sigType byte, rootAccount common.Addres
 	return sigType, rootAccount, innerSig, nil
 }
 
-// VerifyAccessKeySignature verifies a Keychain signature (V1 or V2, with a
+// VerifyAccessKeySignature verifies a Keychain V2 signature (with a
 // secp256k1, P256 or WebAuthn access key) and returns the access key address
-// and the root account it signed for. Whether the root account authorized the
+// and the root account it signed for. Legacy V1 envelopes are rejected: their
+// inner signature does not commit to the account; transaction.RecoverSigner
+// reports them. Whether the root account authorized the
 // key is on-chain state the caller must check.
 func VerifyAccessKeySignature(tx *transaction.Tx) (accessKeyAddr, rootAccount common.Address, err error) {
 	if tx.Signature == nil {
@@ -171,8 +173,10 @@ func VerifyAccessKeySignature(tx *transaction.Tx) (accessKeyAddr, rootAccount co
 	if err != nil {
 		return common.Address{}, common.Address{}, fmt.Errorf("failed to verify keychain signature: %w", err)
 	}
-	if recovered.Keychain == 0 {
-		return common.Address{}, common.Address{}, fmt.Errorf("signature is not a keychain signature")
+	// A V1 inner signature signs the plain hash, which does not commit to the
+	// account: it could be rewrapped for any account that authorized the key.
+	if recovered.Keychain != signer.SignatureTypeKeychainV2 {
+		return common.Address{}, common.Address{}, fmt.Errorf("signature is not a keychain V2 signature")
 	}
 	return recovered.KeyID, recovered.Account, nil
 }

@@ -4,8 +4,10 @@ import (
 	"crypto/elliptic"
 	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"math/big"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -325,4 +327,83 @@ func TestWebAuthnAssertion_EscapesOriginLikeJSONStringify(t *testing.T) {
 	var parsed struct{ Origin string }
 	require.NoError(t, json.Unmarshal(clientDataJSON, &parsed))
 	assert.Equal(t, origin, parsed.Origin)
+}
+
+// clientDataJSON variants, each signed correctly, that tempo-primitives'
+// serde parsing accepts or rejects. The same table is checked against
+// tempo-primitives (see TestWebAuthnClientDataMatchesTempo).
+func webAuthnClientDataCases(challenge string) []struct {
+	name   string
+	json   string
+	accept bool
+} {
+	return []struct {
+		name   string
+		json   string
+		accept bool
+	}{
+		{"canonical", `{"type":"webauthn.get","challenge":"` + challenge + `"}`, true},
+		{"reordered with unknown fields", `{"origin":"x","challenge":"` + challenge + `","n":[1,{"a":2}],"type":"webauthn.get"}`, true},
+		{"whitespace", "{ \"type\" : \"webauthn.get\" ,\n \"challenge\" : \"" + challenge + "\" }\n", true},
+		{"escaped unknown field", `{"type":"webauthn.get","challenge":"` + challenge + `","origin":"a\"b"}`, true},
+		{"uppercase type key", `{"Type":"webauthn.get","challenge":"` + challenge + `"}`, false},
+		{"uppercase challenge key", `{"type":"webauthn.get","CHALLENGE":"` + challenge + `"}`, false},
+		{"duplicate challenge", `{"type":"webauthn.get","challenge":"AAAA","challenge":"` + challenge + `"}`, false},
+		{"duplicate type", `{"type":"webauthn.create","type":"webauthn.get","challenge":"` + challenge + `"}`, false},
+		{"escaped type value", `{"type":"webauthn\u002eget","challenge":"` + challenge + `"}`, false},
+		{"escaped challenge value", `{"type":"webauthn.get","challenge":"` + fmt.Sprintf(`\u%04x`, challenge[0]) + challenge[1:] + `"}`, false},
+		{"trailing data", `{"type":"webauthn.get","challenge":"` + challenge + `"}x`, false},
+		{"missing challenge", `{"type":"webauthn.get","origin":"` + challenge + `"}`, false},
+		{"numeric type", `{"type":1,"challenge":"` + challenge + `"}`, false},
+		{"invalid utf-8 in an ignored value", "{\"type\":\"webauthn.get\",\"challenge\":\"" + challenge + "\",\"o\":\"\xff\xfe\"}", true},
+		{"invalid utf-8 in a key", "{\"type\":\"webauthn.get\",\"challenge\":\"" + challenge + "\",\"\xff\":1}", false},
+	}
+}
+
+func TestRecoverEnvelope_WebAuthnClientDataParsing(t *testing.T) {
+	v := loadViemVectors(t)
+	_, w := viemSigners(t, v)
+	authenticatorData, _ := WebAuthnAssertion(v.Hash, v.RPID, v.Origin)
+	for _, tc := range webAuthnClientDataCases(base64URL(v.Hash.Bytes())) {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := RecoverEnvelope(v.Hash, signedWebAuthn(t, w, authenticatorData, []byte(tc.json)))
+			if tc.accept {
+				assert.NoError(t, err)
+			} else {
+				assert.ErrorIs(t, err, ErrInvalidEnvelope)
+			}
+		})
+	}
+}
+
+// TestWebAuthnClientDataMatchesTempo writes the cases above to
+// $TEMPO_XCHECK_OUT so tempo-primitives can check them out of tree.
+func TestWebAuthnClientDataMatchesTempo(t *testing.T) {
+	out := os.Getenv("TEMPO_XCHECK_OUT")
+	if out == "" {
+		t.Skip("set TEMPO_XCHECK_OUT to export cases for tempo-primitives")
+	}
+	v := loadViemVectors(t)
+	_, w := viemSigners(t, v)
+	authenticatorData, _ := WebAuthnAssertion(v.Hash, v.RPID, v.Origin)
+	type exported struct {
+		Name     string `json:"name"`
+		Envelope string `json:"envelope"`
+		Accept   bool   `json:"accept"`
+	}
+	var cases []exported
+	for _, tc := range webAuthnClientDataCases(base64URL(v.Hash.Bytes())) {
+		cases = append(cases, exported{tc.name, hexutil.Encode(signedWebAuthn(t, w, authenticatorData, []byte(tc.json))), tc.accept})
+	}
+	raw, err := json.Marshal(map[string]any{"hash": v.Hash, "address": v.WebAuthnAddress, "cases": cases})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(out, raw, 0o600))
+}
+
+func TestWebAuthnSigner_RejectsOversizedAssertions(t *testing.T) {
+	v := loadViemVectors(t)
+	w, err := NewWebAuthnSigner(v.WebAuthnKey, v.RPID, "https://"+strings.Repeat("a", 2000))
+	require.NoError(t, err)
+	_, err = w.SignEnvelope(v.Hash)
+	assert.ErrorIs(t, err, ErrInvalidEnvelope)
 }
