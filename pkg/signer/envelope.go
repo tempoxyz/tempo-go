@@ -237,7 +237,7 @@ func webAuthnMessage(data []byte, challenge common.Hash) ([32]byte, error) {
 
 // parseClientData reads the "type" and "challenge" fields of a
 // clientDataJSON exactly as tempo-primitives' serde struct does: one JSON
-// object with valid UTF-8 keys, field names matched exactly (not case-insensitively),
+// object with valid UTF-8 keys (or the two-element array serde also reads), field names matched exactly (not case-insensitively),
 // unknown fields ignored, each of the two fields present once, and their
 // values plain strings without escape sequences (serde borrows them).
 func parseClientData(data []byte) (clientType, challenge string, err error) {
@@ -245,8 +245,28 @@ func parseClientData(data []byte) (clientType, challenge string, err error) {
 		return "", "", fmt.Errorf("%w: clientDataJSON %s", ErrInvalidEnvelope, reason)
 	}
 	dec := json.NewDecoder(bytes.NewReader(data))
-	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+	open, err := dec.Token()
+	if err != nil || (open != json.Delim('{') && open != json.Delim('[')) {
 		return invalid("is not a JSON object")
+	}
+	// serde also reads a struct from a sequence of its fields in order:
+	// ["webauthn.get", "<challenge>"].
+	if open == json.Delim('[') {
+		var fields [2]string
+		for i := range fields {
+			var raw json.RawMessage
+			if !dec.More() || dec.Decode(&raw) != nil || !plainJSONString(raw) {
+				return invalid("array must hold the type and challenge strings")
+			}
+			fields[i] = string(raw[1 : len(raw)-1])
+		}
+		if tok, err := dec.Token(); err != nil || tok != json.Delim(']') {
+			return invalid("array must hold exactly the type and challenge")
+		}
+		if _, err := dec.Token(); err != io.EOF {
+			return invalid("has trailing data")
+		}
+		return fields[0], fields[1], nil
 	}
 	var haveType, haveChallenge bool
 	for dec.More() {
@@ -268,7 +288,7 @@ func parseClientData(data []byte) (clientType, challenge string, err error) {
 		if key != "type" && key != "challenge" {
 			continue
 		}
-		if len(raw) < 2 || raw[0] != '"' || bytes.IndexByte(raw, '\\') >= 0 || !utf8.Valid(raw) {
+		if !plainJSONString(raw) {
 			return invalid("field " + key + " must be a string without escapes")
 		}
 		value := string(raw[1 : len(raw)-1])
@@ -294,6 +314,13 @@ func parseClientData(data []byte) (clientType, challenge string, err error) {
 		return invalid("is missing type or challenge")
 	}
 	return clientType, challenge, nil
+}
+
+// plainJSONString reports whether raw is a JSON string serde can borrow:
+// valid UTF-8 with no escape sequences.
+func plainJSONString(raw []byte) bool {
+	return len(raw) >= 2 && raw[0] == '"' && raw[len(raw)-1] == '"' &&
+		bytes.IndexByte(raw, '\\') < 0 && utf8.Valid(raw)
 }
 
 func base64URL(b []byte) string { return base64.RawURLEncoding.EncodeToString(b) }

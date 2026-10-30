@@ -357,6 +357,17 @@ func webAuthnClientDataCases(challenge string) []struct {
 		{"numeric type", `{"type":1,"challenge":"` + challenge + `"}`, false},
 		{"invalid utf-8 in an ignored value", "{\"type\":\"webauthn.get\",\"challenge\":\"" + challenge + "\",\"o\":\"\xff\xfe\"}", true},
 		{"invalid utf-8 in a key", "{\"type\":\"webauthn.get\",\"challenge\":\"" + challenge + "\",\"\xff\":1}", false},
+		{"control character in ignored value", "{\"type\":\"webauthn.get\",\"challenge\":\"" + challenge + "\",\"o\":\"a\x01b\"}", false},
+		{"NaN in ignored value", `{"type":"webauthn.get","challenge":"` + challenge + `","o":NaN}`, false},
+		{"array form", `["webauthn.get","` + challenge + `"]`, true},
+		{"array with extra element", `["webauthn.get","` + challenge + `",1]`, false},
+		{"empty object", `{}`, false},
+		{"null type", `{"type":null,"challenge":"` + challenge + `"}`, false},
+		{"escaped key", `{"t\u0079pe":"webauthn.get","challenge":"` + challenge + `"}`, true},
+		{"big number in ignored value", `{"type":"webauthn.get","challenge":"` + challenge + `","n":1e400}`, true},
+		{"nested fields are ignored", `{"o":{"type":"webauthn.create","challenge":"x"},"type":"webauthn.get","challenge":"` + challenge + `"}`, true},
+		{"fields only nested", `{"o":{"type":"webauthn.get","challenge":"` + challenge + `"}}`, false},
+		{"nested array", `{"o":[{"type":"webauthn.create"}],"type":"webauthn.get","challenge":"` + challenge + `"}`, true},
 	}
 }
 

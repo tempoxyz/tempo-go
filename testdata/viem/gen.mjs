@@ -27,6 +27,8 @@ out.webAuthnSignature = await wa.sign({ hash })
 const waEnv = SignatureEnvelope.deserialize(out.webAuthnSignature)
 out.webAuthnMetadata = waEnv.metadata
 
+out.p256SignatureRpc = SignatureEnvelope.toRpc(SignatureEnvelope.deserialize(out.p256Signature))
+out.webAuthnSignatureRpc = SignatureEnvelope.toRpc(SignatureEnvelope.deserialize(out.webAuthnSignature))
 const p256Access = Account.fromP256(p256Key, { access: root })
 const waAccess = Account.fromHeadlessWebAuthn(p256Key2, { rpId, origin, access: root })
 out.p256AccessKeySignature = await p256Access.sign({ hash })
