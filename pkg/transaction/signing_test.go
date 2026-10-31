@@ -305,15 +305,18 @@ func TestVerifySignature_AfterFeePayerSigns(t *testing.T) {
 		"Sender signature should remain valid after fee payer signs")
 }
 
-// TestVerifySignature_UnsupportedType tests that non-secp256k1 signature types are rejected.
+// TestVerifySignature_UnsupportedType tests that VerifySignature rejects
+// keychain signatures (RecoverSigner verifies them) and P256 or WebAuthn
+// envelopes without their raw bytes.
 func TestVerifySignature_UnsupportedType(t *testing.T) {
 	tests := []struct {
 		name    string
 		sigType string
+		wantErr error
 	}{
-		{"p256", SignatureTypeP256},
-		{"webauthn", SignatureTypeWebAuthn},
-		{"keychain", "keychain"},
+		{"p256", SignatureTypeP256, nil},
+		{"webauthn", SignatureTypeWebAuthn, nil},
+		{"keychain", "keychain", ErrUnsupportedSignatureType},
 	}
 
 	for _, tt := range tests {
@@ -337,7 +340,9 @@ func TestVerifySignature_UnsupportedType(t *testing.T) {
 
 			_, err := VerifySignature(tx)
 			assert.Error(t, err)
-			assert.ErrorIs(t, err, ErrUnsupportedSignatureType)
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+			}
 		})
 	}
 }

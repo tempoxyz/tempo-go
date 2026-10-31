@@ -497,9 +497,14 @@ func decodeSignatureEnvelope(envelopeBytes []byte) (*signer.SignatureEnvelope, e
 			Raw:  envelopeBytes,
 		}, nil
 
-	case 0x04: // Keychain: 0x04 + user_address (20 bytes) + inner_sig (65 bytes) = 86 bytes
-		if len(envelopeBytes) != 86 {
-			return nil, fmt.Errorf("invalid Keychain signature length: expected 86, got %d", len(envelopeBytes))
+	case signer.SignatureTypeKeychainV1, signer.SignatureTypeKeychainV2:
+		// Keychain: type (0x03 V1, 0x04 V2) + user_address (20 bytes) + an
+		// inner primitive signature (secp256k1, P256 or WebAuthn).
+		if len(envelopeBytes) < 21 {
+			return nil, fmt.Errorf("invalid Keychain signature length: got %d", len(envelopeBytes))
+		}
+		if err := signer.ValidatePrimitive(envelopeBytes[21:]); err != nil {
+			return nil, fmt.Errorf("invalid Keychain inner signature: %w", err)
 		}
 		return &signer.SignatureEnvelope{
 			Type: "keychain",

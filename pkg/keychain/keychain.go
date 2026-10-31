@@ -154,12 +154,12 @@ func ParseKeychainSignature(sig []byte) (sigType byte, rootAccount common.Addres
 	return sigType, rootAccount, innerSig, nil
 }
 
-// VerifyAccessKeySignature verifies that a Keychain signature was created by a valid access key.
-//
-// Parameters:
-//   - tx: The transaction with the Keychain signature
-//
-// Returns the access key address (the signer) and root account address if valid.
+// VerifyAccessKeySignature verifies a Keychain V2 signature (with a
+// secp256k1, P256 or WebAuthn access key) and returns the access key address
+// and the root account it signed for. Legacy V1 envelopes are rejected: their
+// inner signature does not commit to the account; transaction.RecoverSigner
+// reports them. Whether the root account authorized the
+// key is on-chain state the caller must check.
 func VerifyAccessKeySignature(tx *transaction.Tx) (accessKeyAddr, rootAccount common.Address, err error) {
 	if tx.Signature == nil {
 		return common.Address{}, common.Address{}, fmt.Errorf("transaction has no signature")
@@ -169,33 +169,14 @@ func VerifyAccessKeySignature(tx *transaction.Tx) (accessKeyAddr, rootAccount co
 		return common.Address{}, common.Address{}, fmt.Errorf("signature is not a keychain signature")
 	}
 
-	_, rootAccount, innerSig, err := ParseKeychainSignature(tx.Signature.Raw)
+	recovered, err := transaction.RecoverSigner(tx)
 	if err != nil {
-		return common.Address{}, common.Address{}, fmt.Errorf("failed to parse keychain signature: %w", err)
+		return common.Address{}, common.Address{}, fmt.Errorf("failed to verify keychain signature: %w", err)
 	}
-
-	// Get the signing hash (with From set to root account)
-	txCopy := *tx
-	txCopy.From = rootAccount
-	txCopy.Signature = nil
-
-	sigHash, err := transaction.GetSignPayload(&txCopy)
-	if err != nil {
-		return common.Address{}, common.Address{}, fmt.Errorf("failed to get sign payload: %w", err)
+	// A V1 inner signature signs the plain hash, which does not commit to the
+	// account: it could be rewrapped for any account that authorized the key.
+	if recovered.Keychain != signer.SignatureTypeKeychainV2 {
+		return common.Address{}, common.Address{}, fmt.Errorf("signature is not a keychain V2 signature")
 	}
-
-	// Compute V2 signing hash: keccak256(0x04 || sig_hash || root_account)
-	v2Input := make([]byte, 0, 1+32+20)
-	v2Input = append(v2Input, KeychainSignatureType)
-	v2Input = append(v2Input, sigHash.Bytes()...)
-	v2Input = append(v2Input, rootAccount.Bytes()...)
-	signingHash := crypto.Keccak256Hash(v2Input)
-
-	// Recover the access key address from the inner signature
-	accessKeyAddr, err = signer.RecoverAddress(signingHash, innerSig)
-	if err != nil {
-		return common.Address{}, common.Address{}, fmt.Errorf("failed to recover access key address: %w", err)
-	}
-
-	return accessKeyAddr, rootAccount, nil
+	return recovered.KeyID, recovered.Account, nil
 }
