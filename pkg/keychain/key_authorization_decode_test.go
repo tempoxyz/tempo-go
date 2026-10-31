@@ -247,10 +247,9 @@ func TestDecodeKeyAuthorization_Rejects(t *testing.T) {
 	}
 }
 
-// tempo-primitives accepts these non-canonical but valid forms (TIP-1011):
-// an explicit trailing 0x80 for expiry, limits or allowed_calls, and an
-// explicit zero period for a one-time limit.
-func TestDecodeKeyAuthorization_AcceptsOptionalEncodings(t *testing.T) {
+// The node fails to decode a transaction whose key authorization has an explicit
+// trailing 0x80 or an explicit zero period, so these are rejected too.
+func TestDecodeKeyAuthorization_RejectsNonCanonicalOptionals(t *testing.T) {
 	keyID := testKeyID().Bytes()
 	addr := common.HexToAddress("0x2222222222222222222222222222222222222222").Bytes()
 	sig := make([]byte, 65)
@@ -263,35 +262,16 @@ func TestDecodeKeyAuthorization_AcceptsOptionalEncodings(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		signed []interface{}
-		check  func(t *testing.T, a *KeyAuthorization)
 	}{
-		{"trailing expiry placeholder", auth(empty), func(t *testing.T, a *KeyAuthorization) {
-			if a.Expiry != 0 || a.Limits != nil || a.AllowedCalls != nil {
-				t.Fatalf("expected no expiry, limits or scopes: %+v", a)
-			}
-		}},
-		{"trailing limits placeholder", auth(empty, empty), func(t *testing.T, a *KeyAuthorization) {
-			if a.Limits != nil {
-				t.Fatalf("expected unlimited, got %+v", *a.Limits)
-			}
-		}},
-		{"trailing allowed_calls placeholder", auth(empty, empty, empty), func(t *testing.T, a *KeyAuthorization) {
-			if a.AllowedCalls != nil {
-				t.Fatalf("expected unrestricted calls, got %+v", *a.AllowedCalls)
-			}
-		}},
-		{"explicit zero period", auth(empty, []interface{}{[]interface{}{addr, []byte{1}, empty}}), func(t *testing.T, a *KeyAuthorization) {
-			if a.Limits == nil || len(*a.Limits) != 1 || (*a.Limits)[0].Period != 0 {
-				t.Fatalf("expected one one-time limit, got %+v", a.Limits)
-			}
-		}},
+		{"trailing expiry placeholder", auth(empty)},
+		{"trailing limits placeholder", auth(empty, empty)},
+		{"trailing allowed_calls placeholder", auth(empty, empty, empty)},
+		{"explicit zero period", auth(empty, []interface{}{[]interface{}{addr, []byte{1}, empty}})},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			a, _, err := DecodeKeyAuthorization(tc.signed)
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
+			if _, _, err := DecodeKeyAuthorization(tc.signed); err == nil {
+				t.Fatal("expected an error")
 			}
-			tc.check(t, a)
 		})
 	}
 }
