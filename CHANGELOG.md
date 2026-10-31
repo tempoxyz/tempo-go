@@ -1,5 +1,15 @@
 # Changelog
 
+## `github.com/tempoxyz/tempo-go@0.7.0`
+
+### Minor Changes
+
+- Changed secp256k1 sender signatures and keychain inner signatures to encode the recovery id as 27/28, matching the node, viem/ox and pytempo, so `Tx.Hash()` now returns the hash the node reports; transactions signed by earlier versions serialize and hash differently. `Deserialize` and `ParseKeychainSignature` accept both 27/28 and 0/1 and re-encode as 27/28. Added `keychain.DecodeKeyAuthorization` to decode a transaction's signed key authorization (`Tx.KeyAuthorization`) into a `KeyAuthorization` and its signature. `Tx.Validate` now rejects a `maxPriorityFeePerGas` above `maxFeePerGas`, and a `validBefore` at or before `validAfter` when both are set. (by @brendanjryan, [#135](https://github.com/tempoxyz/tempo-go/pull/135))
+
+### Patch Changes
+
+- Required bearer authentication for the loopback-only fee-payer example and restricted sponsorship to bounded token transfers. (by @brendanjryan, [#123](https://github.com/tempoxyz/tempo-go/pull/123))
+
 ## `github.com/tempoxyz/tempo-go@0.6.1`
 
 First published 0.6.x release. Version 0.6.0 was prepared but not published.
