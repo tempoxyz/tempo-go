@@ -77,11 +77,10 @@ func decodeKeyAuthorizationFields(fields []interface{}) (*KeyAuthorization, erro
 	last := len(fields) - 1
 	for i := keyAuthRequiredFields; i <= last; i++ {
 		f := fields[i]
-		// An empty string placeholder marks an absent field before a present one.
-		// Trailing absent fields are canonically omitted, but tempo-primitives also
-		// accepts an explicit trailing 0x80 for expiry, limits and allowed_calls
-		// (TIP-1011); witness, admin marker and account must be omitted.
-		if b, isBytes := f.([]byte); isBytes && len(b) == 0 && (i < last || i <= 5) {
+		// An empty string placeholder marks an absent field, but only before a
+		// present one: trailing absent fields must be omitted. The node rejects an
+		// explicit trailing 0x80 when decoding the transaction.
+		if b, isBytes := f.([]byte); isBytes && len(b) == 0 && i < last {
 			continue
 		}
 		switch i {
@@ -152,13 +151,15 @@ func decodeTokenLimits(f interface{}) ([]TokenLimit, error) {
 		}
 		limit := TokenLimit{Token: token, Amount: amount}
 		if len(tuple) == 3 {
-			// period is a trailing optional, canonically omitted when zero.
+			// period is a trailing optional: present only when non-zero.
 			period, err := decodeRLPUint64(tuple[2], fmt.Sprintf("limits[%d].period", i))
 			if err != nil {
 				return nil, err
 			}
-			// An explicit zero period is accepted as a one-time limit, as
-			// tempo-primitives does (TIP-1011).
+			// The node rejects an explicit zero period: a one-time limit omits it.
+			if period == 0 {
+				return nil, fmt.Errorf("key authorization: limits[%d].period must be omitted, not encoded as 0", i)
+			}
 			limit.Period = period
 		}
 		limits = append(limits, limit)

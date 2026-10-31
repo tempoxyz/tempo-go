@@ -43,8 +43,9 @@ func TestDeserializeDoesNotTruncateLegitMarkerSuffix(t *testing.T) {
 		"signature must survive the round trip intact")
 }
 
-// A genuine tempo.ts trailer (address + marker) must be stripped before decoding.
-func TestDeserializeStripsGenuineFeePayerTrailer(t *testing.T) {
+// The legacy tempo.ts fee-payer format (RLP || 20-byte sender || 0xfeefeefeefee) is
+// rejected, as the node rejects it.
+func TestDeserializeRejectsLegacyFeePayerTrailer(t *testing.T) {
 	recipient := common.HexToAddress("0x3333333333333333333333333333333333333333")
 	tx := New()
 	tx.Gas = 21000
@@ -53,12 +54,14 @@ func TestDeserializeStripsGenuineFeePayerTrailer(t *testing.T) {
 	serialized, err := Serialize(tx, nil)
 	require.NoError(t, err)
 
-	// Append <20-byte address> + marker, exactly as tempo.ts does.
-	withTrailer := serialized + strings.Repeat("0", 40) + "feefeefeefee"
+	_, err = Deserialize(serialized + strings.Repeat("0", 40) + "feefeefeefee")
+	require.Error(t, err)
+}
 
-	got, err := Deserialize(withTrailer)
-	require.NoError(t, err)
-	assert.Equal(t, uint64(21000), got.Gas)
-	require.Len(t, got.Calls, 1)
-	assert.Equal(t, recipient, *got.Calls[0].To)
+// A transaction tempo.ts signed in the legacy fee-payer format (formerly a golden
+// vector here) is rejected.
+func TestDeserializeRejectsTempoTsFeePayerGolden(t *testing.T) {
+	clientTx := "0x76f87582a5bd808502cb417800825dc2dcdb9400000000000000000000000000000000000000008084deadbeefc0800b80808000c0b8417607a2e7bea757dc38093db971a7ec7537a690a698119d629b2eb6bb433315767a20aeb717b10285986bc22f0cbb7e9254a2a1f35d5c29ad5119e8b46e202ec401d47b37BBC34fa57e9a67Ae7d0a1496edC88f04Bbfeefeefeefee"
+	_, err := Deserialize(clientTx)
+	require.Error(t, err)
 }

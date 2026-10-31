@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDeserializeStripsTrailerWithoutChangingSponsoredTransaction(t *testing.T) {
+func TestDeserializeRejectsTrailerOnSponsoredTransaction(t *testing.T) {
 	recipient := common.HexToAddress("0x4444444444444444444444444444444444444444")
 	tx := New()
 	tx.Gas = 21000
@@ -18,14 +18,9 @@ func TestDeserializeStripsTrailerWithoutChangingSponsoredTransaction(t *testing.
 
 	serialized, err := Serialize(tx, nil)
 	require.NoError(t, err)
-	withTrailer := serialized + "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" + "feefeefeefee"
 
-	got, err := Deserialize(withTrailer)
-	require.NoError(t, err)
-	assert.True(t, got.AwaitingFeePayer)
-	assert.Equal(t, AlphaUSDAddress, got.FeeToken)
-	require.Len(t, got.Calls, 1)
-	assert.Equal(t, []byte{0x01, 0x02}, got.Calls[0].Data)
+	_, err = Deserialize(serialized + "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" + "feefeefeefee")
+	require.Error(t, err)
 }
 
 func TestDeserializePreservesCallDataEndingInFeePayerMarker(t *testing.T) {

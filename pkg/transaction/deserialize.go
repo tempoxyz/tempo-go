@@ -1,7 +1,6 @@
 package transaction
 
 import (
-	"bytes"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -63,12 +62,6 @@ func Deserialize(serialized string) (*Tx, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode hex: %w", err)
 	}
-
-	// tempo.ts v0.4.2+ appends a sender address + marker after the RLP payload when
-	// feePayer=true: <rlp_data> || <20-byte address> || 0xfeefeefeefee. Strip it before
-	// RLP decoding, but detect it structurally rather than by a naive byte-suffix match,
-	// so we never truncate a legitimate transaction whose payload ends in those bytes.
-	rlpBytes = stripFeePayerTrailer(rlpBytes)
 
 	// Decode RLP to raw interface slice
 	var raw []interface{}
@@ -239,36 +232,6 @@ func Deserialize(serialized string) (*Tx, error) {
 	}
 
 	return tx, nil
-}
-
-// feePayerTrailerMarker is the 6-byte marker that tempo.ts (v0.4.2+) appends after the
-// 20-byte sender address when serializing a fee-payer transaction. The trailer lives
-// outside the RLP payload, so it must be removed before RLP decoding.
-var feePayerTrailerMarker = []byte{0xfe, 0xef, 0xee, 0xfe, 0xef, 0xee}
-
-// feePayerTrailerLen is the total trailer size: a 20-byte address plus the marker.
-const feePayerTrailerLen = common.AddressLength + len("feefeefeefee")/2
-
-// stripFeePayerTrailer removes the tempo.ts fee-payer trailer, but only when it is
-// genuinely present. The check is structural: the marker must match AND the bytes that
-// precede it must form a single, self-contained RLP value with nothing left over. If
-// stripping would not leave a clean RLP value, the marker bytes were part of the real
-// payload (e.g. a WebAuthn signature that happens to end in 0xfeefeefeefee), so the
-// input is returned untouched. RLP decoding then reports any genuine corruption.
-func stripFeePayerTrailer(rlpBytes []byte) []byte {
-	if len(rlpBytes) < feePayerTrailerLen {
-		return rlpBytes
-	}
-	if !bytes.HasSuffix(rlpBytes, feePayerTrailerMarker) {
-		return rlpBytes
-	}
-
-	candidate := rlpBytes[:len(rlpBytes)-feePayerTrailerLen]
-	if _, rest, err := rlp.SplitList(candidate); err != nil || len(rest) != 0 {
-		// Removing the trailer does not yield a clean RLP list: the marker was real data.
-		return rlpBytes
-	}
-	return candidate
 }
 
 // parseSignatureEnvelopeField parses a signature envelope from a raw RLP field.
