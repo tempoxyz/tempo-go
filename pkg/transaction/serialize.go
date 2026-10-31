@@ -311,7 +311,7 @@ func encodeSignature(sig *signer.Signature) []interface{} {
 
 // encodeSignatureEnvelope encodes a signature envelope.
 // Per Tempo Transaction spec, signature types are detected by length and type prefix:
-// - secp256k1: raw 65 bytes (r || s || yParity) - no type prefix
+// - secp256k1: raw 65 bytes (r || s || v), v = 27 + yParity - no type prefix
 // - keychain: raw bytes (0x04 || user_address || inner_sig) - type prefix 0x04
 // - p256: raw bytes (0x01 || signature data) - type prefix 0x01
 // - webauthn: raw bytes (0x02 || webauthn_data) - type prefix 0x02
@@ -320,7 +320,7 @@ func encodeSignatureEnvelope(envelope *signer.SignatureEnvelope) ([]byte, error)
 		return []byte{}, nil
 	}
 
-	// secp256k1: raw 65 bytes (no type prefix)
+	// secp256k1: raw 65 bytes r || s || v (no type prefix), v = 27/28
 	if envelope.Type == "secp256k1" || envelope.Type == "" {
 		if envelope.Signature == nil {
 			return nil, fmt.Errorf("secp256k1 signature envelope has no parsed signature")
@@ -343,7 +343,9 @@ func encodeSignatureEnvelope(envelope *signer.SignatureEnvelope) ([]byte, error)
 		result := make([]byte, 65)
 		copy(result[32-len(rBytes):32], rBytes)
 		copy(result[64-len(sBytes):64], sBytes)
-		result[64] = envelope.Signature.YParity
+		// The node (tempo-primitives PrimitiveSignature::to_bytes) writes the recovery id
+		// as 27/28 and reports the hash of that encoding, so write the same form.
+		result[64] = 27 + envelope.Signature.YParity
 
 		return result, nil
 	}

@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/tempoxyz/tempo-go/pkg/signer"
 )
 
@@ -485,7 +486,7 @@ func TestDecodeSignatureEnvelope_RejectsInvalidRecoveryID(t *testing.T) {
 	assert.Contains(t, err.Error(), "invalid recovery id in signature envelope")
 }
 
-func TestDeserialize_NormalizesLegacyRecoveryIDEnvelope(t *testing.T) {
+func TestDeserialize_AcceptsZeroOneRecoveryIDEnvelope(t *testing.T) {
 	senderSgn, err := signer.NewSigner("0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
 	assert.NoError(t, err)
 
@@ -498,9 +499,11 @@ func TestDeserialize_NormalizesLegacyRecoveryIDEnvelope(t *testing.T) {
 
 	serialized, err := Serialize(tx, nil)
 	assert.NoError(t, err)
-	legacySerialized := withLegacyRecoveryIDEnvelope(t, serialized)
+	// The node also accepts the 0/1 recovery id older tempo-go versions wrote.
+	zeroOneSerialized := withZeroOneRecoveryIDEnvelope(t, serialized)
+	assert.NotEqual(t, serialized, zeroOneSerialized)
 
-	deserialized, err := Deserialize(legacySerialized)
+	deserialized, err := Deserialize(zeroOneSerialized)
 	assert.NoError(t, err)
 	assert.NotNil(t, deserialized.Signature)
 	assert.Equal(t, tx.Signature.Signature.YParity, deserialized.Signature.Signature.YParity)
@@ -509,9 +512,16 @@ func TestDeserialize_NormalizesLegacyRecoveryIDEnvelope(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, senderSgn.Address(), recovered)
 
+	// It re-serializes as 27/28 and hashes that encoding, as the node does.
 	canonicalSerialized, err := Serialize(deserialized, nil)
 	assert.NoError(t, err)
 	assert.Equal(t, serialized, canonicalSerialized)
+
+	wantHash, err := ComputeHash(serialized)
+	assert.NoError(t, err)
+	gotHash, err := deserialized.Hash()
+	assert.NoError(t, err)
+	assert.Equal(t, wantHash, gotHash)
 }
 
 func TestDecodeSignature_InvalidTupleLength(t *testing.T) {
@@ -950,7 +960,7 @@ func encodeToHex(t *testing.T, rlpList []interface{}) string {
 	return "0x76" + hex.EncodeToString(rlpBytes)
 }
 
-func withLegacyRecoveryIDEnvelope(t *testing.T, serialized string) string {
+func withZeroOneRecoveryIDEnvelope(t *testing.T, serialized string) string {
 	t.Helper()
 
 	serializedBytes := common.FromHex(serialized)
@@ -972,9 +982,12 @@ func withLegacyRecoveryIDEnvelope(t *testing.T, serialized string) string {
 		t.Fatalf("expected 65-byte signature envelope in field %d, got %T length %d", signatureField, raw[signatureField], len(envelope))
 	}
 
-	legacyEnvelope := append([]byte(nil), envelope...)
-	legacyEnvelope[64] += 27
-	raw[signatureField] = legacyEnvelope
+	if envelope[64] != 27 && envelope[64] != 28 {
+		t.Fatalf("expected 27/28 recovery id, got %d", envelope[64])
+	}
+	zeroOneEnvelope := append([]byte(nil), envelope...)
+	zeroOneEnvelope[64] -= 27
+	raw[signatureField] = zeroOneEnvelope
 
 	rawBytes, err := rlp.EncodeToBytes(raw)
 	if err != nil {
@@ -1285,5 +1298,59 @@ func TestKeychainSignatureRoundtrip(t *testing.T) {
 
 	assert.NotNil(t, deserialized.Signature)
 	assert.Equal(t, "keychain", deserialized.Signature.Type)
-	assert.Equal(t, rawKeychainSig, deserialized.Signature.Raw, "Keychain signature raw bytes should round-trip")
+	// The 0/1 inner recovery id is re-encoded as 27/28, as the node does.
+	want := append([]byte(nil), rawKeychainSig...)
+	want[85] = 28
+	assert.Equal(t, want, deserialized.Signature.Raw, "Keychain signature should round-trip with a 27/28 inner v")
+
+	// A 27/28 inner recovery id round-trips unchanged.
+	tx.Signature.Raw = want
+	serialized, err = Serialize(tx, nil)
+	assert.NoError(t, err)
+	deserialized, err = Deserialize(serialized)
+	assert.NoError(t, err)
+	assert.Equal(t, want, deserialized.Signature.Raw, "Keychain signature raw bytes should round-trip")
+}
+
+// TestSerialize_ConformanceVector checks a secp256k1 signed transaction against
+// the tempo-conformance "minimal" vector (vectors/transactions.json), whose raw
+// bytes and hash match viem/ox and the hash the node reports.
+func TestSerialize_ConformanceVector(t *testing.T) {
+	const (
+		wantRaw  = "0x76f8bd820539843b9aca00850ba43b7400831e8480f85ef85c9420c000000000000000000000000000000000000080b844a9059cbb000000000000000000000000000000000000000000000000000000000000beef0000000000000000000000000000000000000000000000000000000000000001c0808080808080c0b8419c7591b4d27edfaa28c23c04e883d86a2f86a728958e9af78423f6b05a28b6ba3b1197c2e7f5cd97828183433f919140c18f8db561db7e343e3d01305405dc091c"
+		wantHash = "0x1b00458c44cae1b4231552d4dc9cc7e97ce569bd593338dfadaccdee7ff384e6"
+	)
+	s, err := signer.NewSigner("0xea6f3d5f25cdd6da508e1461531afb9b0eb58a04fe46e50e3ee6b19b2945a38a")
+	require.NoError(t, err)
+
+	tx := NewBuilder(big.NewInt(1337)).
+		SetGas(2000000).
+		SetMaxFeePerGas(big.NewInt(50000000000)).
+		SetMaxPriorityFeePerGas(big.NewInt(1000000000)).
+		AddCall(common.HexToAddress("0x20c0000000000000000000000000000000000000"), big.NewInt(0),
+			common.FromHex("0xa9059cbb000000000000000000000000000000000000000000000000000000000000beef0000000000000000000000000000000000000000000000000000000000000001")).
+		Build()
+	require.NoError(t, SignTransaction(tx, s))
+
+	raw, err := Serialize(tx, nil)
+	require.NoError(t, err)
+	assert.Equal(t, wantRaw, raw)
+	hash, err := tx.Hash()
+	require.NoError(t, err)
+	assert.Equal(t, wantHash, hash.Hex())
+	computed, err := ComputeHash(raw)
+	require.NoError(t, err)
+	assert.Equal(t, computed, hash, "Tx.Hash() must be keccak256 of the serialized bytes")
+
+	// Decoding the 27/28 form, or the 0/1 form the node also accepts, gives the node's hash.
+	for _, in := range []string{wantRaw, withZeroOneRecoveryIDEnvelope(t, wantRaw)} {
+		decoded, err := Deserialize(in)
+		require.NoError(t, err)
+		hash, err := decoded.Hash()
+		require.NoError(t, err)
+		assert.Equal(t, wantHash, hash.Hex())
+		sender, err := VerifySignature(decoded)
+		require.NoError(t, err)
+		assert.Equal(t, s.Address(), sender)
+	}
 }

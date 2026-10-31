@@ -49,9 +49,9 @@ func TestBuildKeychainSignature(t *testing.T) {
 		t.Errorf("expected root account %s, got %s", rootAccount.Hex(), recoveredRoot.Hex())
 	}
 
-	// Verify yParity
-	if keychainSig[85] != yParity {
-		t.Errorf("expected yParity %d, got %d", yParity, keychainSig[85])
+	// Verify v is written as 27 + yParity, the form the node uses
+	if keychainSig[85] != 27+yParity {
+		t.Errorf("expected v %d, got %d", 27+yParity, keychainSig[85])
 	}
 }
 
@@ -313,5 +313,113 @@ func TestValidateAccessKeySignature(t *testing.T) {
 	invalid[0] = 0x01
 	if err := ValidateAccessKeySignature(invalid); err == nil {
 		t.Error("expected error for invalid type")
+	}
+}
+
+func TestParseKeychainSignature_RecoveryIDForms(t *testing.T) {
+	root := common.HexToAddress("0x70997970C51812dc3A010C7d01b50e0d17dc79C8")
+	sig, err := BuildKeychainSignature(signer.NewSignature(big.NewInt(1), big.NewInt(2), 1), root)
+	if err != nil {
+		t.Fatalf("BuildKeychainSignature: %v", err)
+	}
+	for v, wantYParity := range map[byte]uint8{0: 0, 1: 1, 27: 0, 28: 1} {
+		sig[85] = v
+		_, _, inner, err := ParseKeychainSignature(sig)
+		if err != nil {
+			t.Fatalf("v=%d: unexpected error: %v", v, err)
+		}
+		if inner.YParity != wantYParity {
+			t.Errorf("v=%d: yParity = %d, want %d", v, inner.YParity, wantYParity)
+		}
+	}
+	for _, v := range []byte{2, 26, 29, 0xff} {
+		sig[85] = v
+		if _, _, _, err := ParseKeychainSignature(sig); err == nil {
+			t.Errorf("v=%d: expected error", v)
+		}
+	}
+}
+
+func TestBuildKeychainSignature_RecoveryIDForms(t *testing.T) {
+	root := common.HexToAddress("0x70997970C51812dc3A010C7d01b50e0d17dc79C8")
+	for yParity, want := range map[uint8]byte{0: 27, 1: 28, 27: 27, 28: 28} {
+		sig, err := BuildKeychainSignature(signer.NewSignature(big.NewInt(1), big.NewInt(2), yParity), root)
+		if err != nil {
+			t.Fatalf("yParity=%d: unexpected error: %v", yParity, err)
+		}
+		if sig[85] != want {
+			t.Errorf("yParity=%d: v = %d, want %d", yParity, sig[85], want)
+		}
+	}
+	if _, err := BuildKeychainSignature(signer.NewSignature(big.NewInt(1), big.NewInt(2), 2), root); err == nil {
+		t.Error("expected error for yParity 2")
+	}
+}
+
+// TestSignWithAccessKey_ConformanceVector checks a keychain transaction against
+// the tempo-conformance "keychain_access_key" vector (vectors/transactions.json),
+// signed by viem/ox, whose hash is the one the node reports.
+func TestSignWithAccessKey_ConformanceVector(t *testing.T) {
+	const (
+		wantRaw  = "0x76f8d2820539843b9aca00850ba43b7400831e8480f85ef85c9420c000000000000000000000000000000000000080b844a9059cbb000000000000000000000000000000000000000000000000000000000000beef0000000000000000000000000000000000000000000000000000000000000001c0800180808080c0b8560470505783416ca25a9b3bd1334da28240883f3c3bb1f7097d24130dcc5693f92112da92828524e58b7c761e46c2b3f26c33db063a50e06c5600aa18ce4675e3dfdc1a4d27cc060c21aabb25e37c50ffebbc707af91b"
+		wantHash = "0x2068f675ce25c9c8e242f6295c4e9c64ed14673839d136e06ef659558e9e87e3"
+	)
+	root := common.HexToAddress("0x70505783416ca25a9b3bd1334da28240883f3c3b")
+	accessKey, err := signer.NewSigner("0xa813b4a2d5ba0ac630e619a178ecd397d8d82e546bc60dbefc3be9e6bc3036e5")
+	if err != nil {
+		t.Fatalf("NewSigner: %v", err)
+	}
+
+	tx := transaction.NewBuilder(big.NewInt(1337)).
+		SetGas(2000000).
+		SetNonce(1).
+		SetMaxFeePerGas(big.NewInt(50000000000)).
+		SetMaxPriorityFeePerGas(big.NewInt(1000000000)).
+		AddCall(common.HexToAddress("0x20c0000000000000000000000000000000000000"), big.NewInt(0),
+			common.FromHex("0xa9059cbb000000000000000000000000000000000000000000000000000000000000beef0000000000000000000000000000000000000000000000000000000000000001")).
+		Build()
+	if err := SignWithAccessKey(tx, accessKey, root); err != nil {
+		t.Fatalf("SignWithAccessKey: %v", err)
+	}
+	raw, err := transaction.Serialize(tx, nil)
+	if err != nil {
+		t.Fatalf("Serialize: %v", err)
+	}
+	if raw != wantRaw {
+		t.Errorf("raw = %s\nwant %s", raw, wantRaw)
+	}
+	hash, err := tx.Hash()
+	if err != nil {
+		t.Fatalf("Hash: %v", err)
+	}
+	if hash.Hex() != wantHash {
+		t.Errorf("hash = %s, want %s", hash.Hex(), wantHash)
+	}
+
+	// The node also accepts a 0/1 inner v; decoding either form gives the node's hash.
+	zeroOne := common.FromHex(wantRaw)
+	if zeroOne[len(zeroOne)-1] != 27 {
+		t.Fatalf("expected vector inner v 27, got %d", zeroOne[len(zeroOne)-1])
+	}
+	zeroOne[len(zeroOne)-1] = 0
+	for _, in := range []string{wantRaw, "0x" + common.Bytes2Hex(zeroOne)} {
+		decoded, err := transaction.Deserialize(in)
+		if err != nil {
+			t.Fatalf("Deserialize: %v", err)
+		}
+		hash, err := decoded.Hash()
+		if err != nil {
+			t.Fatalf("Hash: %v", err)
+		}
+		if hash.Hex() != wantHash {
+			t.Errorf("decoded hash = %s, want %s", hash.Hex(), wantHash)
+		}
+		gotKey, gotRoot, err := VerifyAccessKeySignature(decoded)
+		if err != nil {
+			t.Fatalf("VerifyAccessKeySignature: %v", err)
+		}
+		if gotKey != accessKey.Address() || gotRoot != root {
+			t.Errorf("access key = %s, root = %s", gotKey.Hex(), gotRoot.Hex())
+		}
 	}
 }

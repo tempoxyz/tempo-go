@@ -447,7 +447,7 @@ func decodeSignature(sigTuple []interface{}) (*signer.Signature, error) {
 
 // decodeSignatureEnvelope decodes a signature envelope.
 // Per Tempo Transaction spec, signature types are detected by length and type prefix:
-// - secp256k1: raw 65 bytes (r || s || recoveryID) - no type prefix
+// - secp256k1: raw 65 bytes (r || s || recoveryID) - no type prefix; recoveryID 0/1 or 27/28
 // - keychain: 0x04 + user_address (20 bytes) + inner_sig (65 bytes) = 86 bytes
 // - p256: 0x01 + 129 bytes = 130 bytes
 // - webauthn: 0x02 + variable data (129-2049 bytes total)
@@ -501,9 +501,17 @@ func decodeSignatureEnvelope(envelopeBytes []byte) (*signer.SignatureEnvelope, e
 		if len(envelopeBytes) != 86 {
 			return nil, fmt.Errorf("invalid Keychain signature length: expected 86, got %d", len(envelopeBytes))
 		}
+		// The inner secp256k1 recovery id may be 0/1 or 27/28; the node accepts both and
+		// re-encodes it as 27/28. Do the same so Tx.Hash() matches the node's hash.
+		raw := append([]byte(nil), envelopeBytes...)
+		v, err := decodeRecoveryID(raw[85], "recovery id in keychain inner signature")
+		if err != nil {
+			return nil, err
+		}
+		raw[85] = 27 + v
 		return &signer.SignatureEnvelope{
 			Type: "keychain",
-			Raw:  envelopeBytes,
+			Raw:  raw,
 		}, nil
 
 	default:
