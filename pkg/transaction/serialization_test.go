@@ -1353,7 +1353,6 @@ func TestSerialize_ConformanceVector(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, s.Address(), sender)
 	}
-<<<<<<< 04cac57d9d2f99cd9ceb28f88e99e9299ccaff3e
 }
 
 func TestSerialize_KeychainRawInnerVNormalized(t *testing.T) {
@@ -1391,6 +1390,4 @@ func TestSerialize_KeychainRawInnerVNormalized(t *testing.T) {
 	if got, err := normalizeKeychainInnerV(p256); err != nil || &got[0] != &p256[0] {
 		t.Fatalf("p256 envelope should be returned unchanged: %v", err)
 	}
-=======
->>>>>>> 5685a39e3ddf6689cd8979cdab44c8f6367ebcbe
 }
