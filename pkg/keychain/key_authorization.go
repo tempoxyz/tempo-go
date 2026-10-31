@@ -103,9 +103,9 @@ func (a *KeyAuthorization) Validate() error {
 	if a.IsAdmin && (a.Expiry != 0 || a.Limits != nil || a.AllowedCalls != nil) {
 		return fmt.Errorf("admin keys cannot have expiry, limits, or allowed calls")
 	}
-	if a.IsAdmin && a.Account == nil {
-		return fmt.Errorf("authorizations that create admin keys must set Account")
-	}
+	// Account is required only when an admin access key signs the authorization
+	// (tempo-primitives KeyAuthorization.account); a root-signed admin
+	// authorization may omit it, so it is not checked here.
 	if a.Limits != nil {
 		for i, l := range *a.Limits {
 			if l.Amount == nil {

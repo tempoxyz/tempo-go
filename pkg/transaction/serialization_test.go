@@ -1391,3 +1391,25 @@ func TestSerialize_KeychainRawInnerVNormalized(t *testing.T) {
 		t.Fatalf("p256 envelope should be returned unchanged: %v", err)
 	}
 }
+
+func TestDeserialize_NormalizesKeyAuthorizationRecoveryID(t *testing.T) {
+	sig := make([]byte, 65)
+	sig[0], sig[32] = 1, 1
+	sig[64] = 1
+	in := []interface{}{[]interface{}{[]byte{1}}, sig}
+	out, err := normalizeKeyAuthorizationSignature(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := out[1].([]byte)[64]; got != 28 {
+		t.Fatalf("recovery id = %d, want 28", got)
+	}
+	if sig[64] != 1 {
+		t.Fatal("input was mutated")
+	}
+	bad := append([]byte(nil), sig...)
+	bad[64] = 5
+	if _, err := normalizeKeyAuthorizationSignature([]interface{}{in[0], bad}); err == nil {
+		t.Fatal("expected error for recovery id 5")
+	}
+}

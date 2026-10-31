@@ -207,7 +207,11 @@ func Deserialize(serialized string) (*Tx, error) {
 		// No optional fields.
 	case 14:
 		if keyAuth, isList := raw[13].([]interface{}); isList {
-			tx.KeyAuthorization = keyAuth
+			normalized, err := normalizeKeyAuthorizationSignature(keyAuth)
+			if err != nil {
+				return nil, err
+			}
+			tx.KeyAuthorization = normalized
 			break
 		}
 
@@ -221,7 +225,11 @@ func Deserialize(serialized string) (*Tx, error) {
 		if !isList {
 			return nil, fmt.Errorf("invalid field 13 type for 15-field transaction: expected keyAuthorization list")
 		}
-		tx.KeyAuthorization = keyAuth
+		normalized, err := normalizeKeyAuthorizationSignature(keyAuth)
+		if err != nil {
+			return nil, err
+		}
+		tx.KeyAuthorization = normalized
 
 		sigEnvelope, err := parseSignatureEnvelopeField(raw[14], 14, true)
 		if err != nil {
@@ -390,6 +398,28 @@ func decodeYParity(yParityBytes []byte, context string) (uint8, error) {
 	}
 
 	return yParity, nil
+}
+
+// normalizeKeyAuthorizationSignature returns the signed key authorization
+// [authorization, signature] with a 65-byte secp256k1 signature's recovery id
+// written as 27/28, the form the node re-encodes to and hashes. Other signature
+// types, and malformed shapes left for keychain.DecodeKeyAuthorization to
+// reject, are returned unchanged.
+func normalizeKeyAuthorizationSignature(keyAuth []interface{}) ([]interface{}, error) {
+	if len(keyAuth) != 2 {
+		return keyAuth, nil
+	}
+	sig, isBytes := keyAuth[1].([]byte)
+	if !isBytes || len(sig) != 65 || sig[64] == 27 || sig[64] == 28 {
+		return keyAuth, nil
+	}
+	yParity, err := decodeRecoveryID(sig[64], "key authorization signature recovery id")
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrInvalidTransaction, err)
+	}
+	out := append([]byte(nil), sig...)
+	out[64] = 27 + yParity
+	return []interface{}{keyAuth[0], out}, nil
 }
 
 func decodeRecoveryID(recoveryID byte, context string) (uint8, error) {

@@ -223,13 +223,10 @@ func TestDecodeKeyAuthorization_Rejects(t *testing.T) {
 		{"chainId over uint64", []interface{}{[]interface{}{bytes.Repeat([]byte{1}, 9), empty, keyID}, sig}, "exceeds uint64"},
 		{"keyType unsupported", []interface{}{[]interface{}{[]byte{1}, []byte{3}, keyID}, sig}, "unsupported keyType"},
 		{"keyId short", []interface{}{[]interface{}{[]byte{1}, empty, keyID[:19]}, sig}, "20-byte address"},
-		{"trailing expiry placeholder", auth(empty), "omitted"},
-		{"trailing limits placeholder", auth(empty, empty), "limits is not a list"},
 		{"trailing witness placeholder", auth(empty, empty, empty, empty), "witness"},
 		{"limits not a list", auth(empty, []byte{1}), "limits is not a list"},
 		{"limit tuple too short", auth(empty, []interface{}{[]interface{}{addr}}), "2 or 3 items"},
 		{"limit amount over uint256", auth(empty, []interface{}{[]interface{}{addr, bytes.Repeat([]byte{1}, 33)}}), "exceeds uint256"},
-		{"limit period zero", auth(empty, []interface{}{[]interface{}{addr, []byte{1}, empty}}), "period must be omitted"},
 		{"selector wrong size", auth(empty, empty, []interface{}{[]interface{}{addr, []interface{}{[]interface{}{[]byte{1, 2, 3}, list}}}}), "4 bytes"},
 		{"call scope extra item", auth(empty, empty, []interface{}{[]interface{}{addr, list, list}}), "2 items"},
 		{"admin marker not 1", auth(empty, empty, empty, empty, []byte{2}, addr), "admin key authorization marker"},
@@ -247,5 +244,77 @@ func TestDecodeKeyAuthorization_Rejects(t *testing.T) {
 				t.Errorf("error = %q, want it to contain %q", err, tc.want)
 			}
 		})
+	}
+}
+
+// tempo-primitives accepts these non-canonical but valid forms (TIP-1011):
+// an explicit trailing 0x80 for expiry, limits or allowed_calls, and an
+// explicit zero period for a one-time limit.
+func TestDecodeKeyAuthorization_AcceptsOptionalEncodings(t *testing.T) {
+	keyID := testKeyID().Bytes()
+	addr := common.HexToAddress("0x2222222222222222222222222222222222222222").Bytes()
+	sig := make([]byte, 65)
+	sig[64] = 27
+	auth := func(fields ...interface{}) []interface{} {
+		return []interface{}{append([]interface{}{[]byte{0x01}, []byte{}, keyID}, fields...), sig}
+	}
+	empty := []byte{}
+
+	for _, tc := range []struct {
+		name   string
+		signed []interface{}
+		check  func(t *testing.T, a *KeyAuthorization)
+	}{
+		{"trailing expiry placeholder", auth(empty), func(t *testing.T, a *KeyAuthorization) {
+			if a.Expiry != 0 || a.Limits != nil || a.AllowedCalls != nil {
+				t.Fatalf("expected no expiry, limits or scopes: %+v", a)
+			}
+		}},
+		{"trailing limits placeholder", auth(empty, empty), func(t *testing.T, a *KeyAuthorization) {
+			if a.Limits != nil {
+				t.Fatalf("expected unlimited, got %+v", *a.Limits)
+			}
+		}},
+		{"trailing allowed_calls placeholder", auth(empty, empty, empty), func(t *testing.T, a *KeyAuthorization) {
+			if a.AllowedCalls != nil {
+				t.Fatalf("expected unrestricted calls, got %+v", *a.AllowedCalls)
+			}
+		}},
+		{"explicit zero period", auth(empty, []interface{}{[]interface{}{addr, []byte{1}, empty}}), func(t *testing.T, a *KeyAuthorization) {
+			if a.Limits == nil || len(*a.Limits) != 1 || (*a.Limits)[0].Period != 0 {
+				t.Fatalf("expected one one-time limit, got %+v", a.Limits)
+			}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a, _, err := DecodeKeyAuthorization(tc.signed)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			tc.check(t, a)
+		})
+	}
+}
+
+// A root-signed admin authorization may omit account (tempo-primitives), and
+// the decoded value must still validate and re-encode.
+func TestDecodeKeyAuthorization_RootAdminWithoutAccount(t *testing.T) {
+	keyID := testKeyID().Bytes()
+	sig := make([]byte, 65)
+	sig[64] = 27
+	empty := []byte{}
+	signed := []interface{}{[]interface{}{[]byte{0x01}, empty, keyID, empty, empty, empty, empty, []byte{0x01}}, sig}
+	a, _, err := DecodeKeyAuthorization(signed)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !a.IsAdmin || a.Account != nil {
+		t.Fatalf("expected admin without account: %+v", a)
+	}
+	if err := a.Validate(); err != nil {
+		t.Fatalf("validate: %v", err)
+	}
+	if _, err := a.SignatureHash(); err != nil {
+		t.Fatalf("signature hash: %v", err)
 	}
 }
