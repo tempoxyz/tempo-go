@@ -26,6 +26,12 @@ func SignWithAccessKeyEnvelope(tx *transaction.Tx, accessKey signer.EnvelopeSign
 	if err != nil {
 		return fmt.Errorf("failed to sign with access key: %w", err)
 	}
+	// The node re-encodes a secp256k1 recovery id as 27/28 and hashes that form,
+	// so write it that way, as SignWithAccessKey does.
+	if accessKey.KeyType() == signer.KeyTypeSecp256k1 && len(inner) == secp256k1SignatureLength && inner[64] < 27 {
+		inner = append([]byte{}, inner...)
+		inner[64] += 27
+	}
 	envelope, err := signer.BuildKeychainEnvelope(signer.SignatureTypeKeychainV2, rootAccount, inner)
 	if err != nil {
 		return err
