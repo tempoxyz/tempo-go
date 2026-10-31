@@ -1353,4 +1353,44 @@ func TestSerialize_ConformanceVector(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, s.Address(), sender)
 	}
+<<<<<<< 04cac57d9d2f99cd9ceb28f88e99e9299ccaff3e
+}
+
+func TestSerialize_KeychainRawInnerVNormalized(t *testing.T) {
+	raw := make([]byte, keychainSecp256k1Len)
+	raw[0] = 0x04
+	for i := 21; i < 85; i++ {
+		raw[i] = 0x11
+	}
+	for _, tc := range []struct {
+		v       byte
+		want    byte
+		wantErr bool
+	}{{0, 27, false}, {1, 28, false}, {27, 27, false}, {28, 28, false}, {2, 0, true}, {29, 0, true}} {
+		in := append([]byte(nil), raw...)
+		in[85] = tc.v
+		got, err := normalizeKeychainInnerV(in)
+		if tc.wantErr {
+			if err == nil {
+				t.Fatalf("v=%d: expected error", tc.v)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatalf("v=%d: %v", tc.v, err)
+		}
+		if got[85] != tc.want {
+			t.Fatalf("v=%d: got %d, want %d", tc.v, got[85], tc.want)
+		}
+		if in[85] != tc.v {
+			t.Fatalf("v=%d: input was mutated", tc.v)
+		}
+	}
+	// P256 / WebAuthn envelopes pass through untouched.
+	p256 := append([]byte{0x01}, make([]byte, 129)...)
+	if got, err := normalizeKeychainInnerV(p256); err != nil || &got[0] != &p256[0] {
+		t.Fatalf("p256 envelope should be returned unchanged: %v", err)
+	}
+=======
+>>>>>>> 5685a39e3ddf6689cd8979cdab44c8f6367ebcbe
 }

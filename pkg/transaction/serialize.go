@@ -352,10 +352,34 @@ func encodeSignatureEnvelope(envelope *signer.SignatureEnvelope) ([]byte, error)
 
 	// keychain, p256, webauthn: use raw bytes directly (already includes type prefix)
 	if envelope.Raw != nil {
-		return envelope.Raw, nil
+		return normalizeKeychainInnerV(envelope.Raw)
 	}
 
 	return nil, fmt.Errorf("signature envelope type %q has no raw bytes", envelope.Type)
+}
+
+// keychainSecp256k1Len is a keychain envelope wrapping a secp256k1 signature:
+// type (0x03 V1 or 0x04 V2) || 20-byte root account || r || s || v.
+const keychainSecp256k1Len = 1 + 20 + 65
+
+// normalizeKeychainInnerV writes the inner secp256k1 recovery id of a keychain
+// envelope as 27/28, the form the node re-encodes to and hashes, however the
+// caller filled Raw. Other envelopes are returned unchanged.
+func normalizeKeychainInnerV(raw []byte) ([]byte, error) {
+	if len(raw) != keychainSecp256k1Len || (raw[0] != 0x03 && raw[0] != 0x04) {
+		return raw, nil
+	}
+	v := raw[keychainSecp256k1Len-1]
+	switch v {
+	case 27, 28:
+		return raw, nil
+	case 0, 1:
+		out := append([]byte(nil), raw...)
+		out[keychainSecp256k1Len-1] = 27 + v
+		return out, nil
+	default:
+		return nil, fmt.Errorf("invalid keychain inner recovery id: must be 0, 1, 27 or 28, got %d", v)
+	}
 }
 
 // bigIntToBytes converts a *big.Int to bytes, returning empty bytes for nil or 0.
