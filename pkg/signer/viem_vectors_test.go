@@ -368,6 +368,15 @@ func webAuthnClientDataCases(challenge string) []struct {
 		{"nested fields are ignored", `{"o":{"type":"webauthn.create","challenge":"x"},"type":"webauthn.get","challenge":"` + challenge + `"}`, true},
 		{"fields only nested", `{"o":{"type":"webauthn.get","challenge":"` + challenge + `"}}`, false},
 		{"nested array", `{"o":[{"type":"webauthn.create"}],"type":"webauthn.get","challenge":"` + challenge + `"}`, true},
+		{"non-ascii digit in ignored number", `{"type":"webauthn.get","challenge":"` + challenge + `","n":1٣}`, false},
+		{"non-ascii digit in ignored fraction", `{"type":"webauthn.get","challenge":"` + challenge + `","n":0.٣}`, false},
+		{"lone surrogate escaped key", `{"type":"webauthn.get","challenge":"` + challenge + `","\ud800":1}`, false},
+		{"lone low surrogate escaped key", `{"type":"webauthn.get","challenge":"` + challenge + `","\udc80":1}`, false},
+		{"lone surrogate in ignored value", `{"type":"webauthn.get","challenge":"` + challenge + `","o":"\ud800"}`, true},
+		{"escaped surrogate pair key", `{"type":"webauthn.get","challenge":"` + challenge + `","\ud83d\ude00":1}`, true},
+		{"leading zero in ignored number", `{"type":"webauthn.get","challenge":"` + challenge + `","n":01}`, false},
+		{"plus sign in ignored number", `{"type":"webauthn.get","challenge":"` + challenge + `","n":+1}`, false},
+		{"Infinity in ignored value", `{"type":"webauthn.get","challenge":"` + challenge + `","n":Infinity}`, false},
 	}
 }
 

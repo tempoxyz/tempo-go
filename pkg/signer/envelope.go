@@ -277,7 +277,7 @@ func parseClientData(data []byte) (clientType, challenge string, err error) {
 		}
 		// serde validates the UTF-8 of every key (and of the two fields it
 		// reads) but skips ignored values without validating them.
-		if !utf8.Valid(data[start:dec.InputOffset()]) {
+		if rawKey := data[start:dec.InputOffset()]; !utf8.Valid(rawKey) || !validSurrogateEscapes(rawKey) {
 			return invalid("has a key that is not valid UTF-8")
 		}
 		key, _ := keyToken.(string)
@@ -314,6 +314,55 @@ func parseClientData(data []byte) (clientType, challenge string, err error) {
 		return invalid("is missing type or challenge")
 	}
 	return clientType, challenge, nil
+}
+
+// validSurrogateEscapes reports whether every \u escape in a raw JSON string
+// encodes a scalar value: a high surrogate must be followed by a low one, and
+// no low surrogate may stand alone. encoding/json would replace a lone
+// surrogate with U+FFFD; serde rejects it in the keys it parses.
+func validSurrogateEscapes(raw []byte) bool {
+	surrogate := func(i int) (rune, bool) {
+		if i+6 > len(raw) || raw[i] != '\\' || raw[i+1] != 'u' {
+			return 0, false
+		}
+		var r rune
+		for _, c := range raw[i+2 : i+6] {
+			switch {
+			case c >= '0' && c <= '9':
+				r = r<<4 | rune(c-'0')
+			case c >= 'a' && c <= 'f':
+				r = r<<4 | rune(c-'a'+10)
+			case c >= 'A' && c <= 'F':
+				r = r<<4 | rune(c-'A'+10)
+			default:
+				return 0, false
+			}
+		}
+		return r, true
+	}
+	for i := 0; i < len(raw); i++ {
+		if raw[i] != '\\' {
+			continue
+		}
+		r, ok := surrogate(i)
+		if !ok {
+			i++ // a one-character escape
+			continue
+		}
+		switch {
+		case r >= 0xDC00 && r <= 0xDFFF:
+			return false
+		case r >= 0xD800 && r <= 0xDBFF:
+			low, ok := surrogate(i + 6)
+			if !ok || low < 0xDC00 || low > 0xDFFF {
+				return false
+			}
+			i += 11
+		default:
+			i += 5
+		}
+	}
+	return true
 }
 
 // plainJSONString reports whether raw is a JSON string serde can borrow:
