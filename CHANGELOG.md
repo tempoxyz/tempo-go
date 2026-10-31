@@ -1,5 +1,18 @@
 # Changelog
 
+## `github.com/tempoxyz/tempo-go@0.7.0`
+
+### Minor Changes
+
+- Added P256 and WebAuthn signing and verification, matching viem's tempo Accounts byte for byte: `signer.P256Signer` and `signer.WebAuthnSigner` (headless, like `Account.fromP256` and `Account.fromHeadlessWebAuthn`), the `signer.EnvelopeSigner` interface (also implemented by `signer.Signer`), and `signer.RecoverEnvelope`, which verifies any Tempo signature envelope (parsing WebAuthn clientDataJSON as strictly as tempo-primitives) (secp256k1, P256, WebAuthn, Keychain V1 and V2 with any inner signature) as tempo-primitives does. Added `transaction.SignTransactionWith` and `transaction.RecoverSigner`; `transaction.VerifySignature` now verifies P256 and WebAuthn senders. Added `keychain.SignWithAccessKeyEnvelope` for P256 and WebAuthn access keys, `KeyAuthorization.SignWith` for any root key and `keychain.NewKeyAuthorizationFor`; `keychain.VerifyAccessKeySignature`, `IsKeychainSignature` and `ValidateAccessKeySignature` accept Keychain V2 envelopes with any inner signature; V1 envelopes, whose inner signature does not commit to the account, are rejected there and reported by `transaction.RecoverSigner`. Transactions now decode Keychain V1 envelopes and Keychain envelopes with P256 or WebAuthn inner signatures. (by @brendanjryan, [#133](https://github.com/tempoxyz/tempo-go/pull/133))
+- Removed support for the legacy tempo.ts fee-payer trailer (`<rlp> || <sender> || 0xfeefeefeefee`) in `Deserialize`. The node rejects that format, so `Deserialize` now returns an error for it instead of stripping the trailer. `keychain.DecodeKeyAuthorization` again rejects an explicit trailing `0x80` and an explicit zero token-limit period, which the node fails to decode. (by @brendanjryan, [#136](https://github.com/tempoxyz/tempo-go/pull/136))
+- Changed secp256k1 sender signatures and keychain inner signatures to encode the recovery id as 27/28, matching the node, viem/ox and pytempo, so `Tx.Hash()` now returns the hash the node reports; transactions signed by earlier versions serialize and hash differently. `Deserialize` and `ParseKeychainSignature` accept both 27/28 and 0/1 and re-encode as 27/28. Added `keychain.DecodeKeyAuthorization` to decode a transaction's signed key authorization (`Tx.KeyAuthorization`) into a `KeyAuthorization` and its signature. `Tx.Validate` now rejects a `maxPriorityFeePerGas` above `maxFeePerGas`, and a `validBefore` at or before `validAfter` when both are set. (by @brendanjryan, [#135](https://github.com/tempoxyz/tempo-go/pull/135))
+
+### Patch Changes
+
+- Required bearer authentication for the loopback-only fee-payer example and restricted sponsorship to bounded token transfers. (by @brendanjryan, [#123](https://github.com/tempoxyz/tempo-go/pull/123))
+- Fixed decoding of keychain envelopes with P256 or WebAuthn inner signatures, which were rejected with an invalid recovery id since the 27/28 normalization. `SignWithAccessKeyEnvelope` now writes a secp256k1 inner recovery id as 27/28, as `SignWithAccessKey` does. (by @brendanjryan, [#137](https://github.com/tempoxyz/tempo-go/pull/137))
+
 ## `github.com/tempoxyz/tempo-go@0.6.1`
 
 First published 0.6.x release. Version 0.6.0 was prepared but not published.
