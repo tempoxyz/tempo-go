@@ -115,7 +115,9 @@ func TestDecodeSignatureEnvelope_Keychain(t *testing.T) {
 	user := make([]byte, 20)
 	p256 := append([]byte{signer.SignatureTypeP256}, make([]byte, signer.P256SignatureLength)...)
 	webAuthn := append([]byte{signer.SignatureTypeWebAuthn}, make([]byte, 200)...)
+	// A 27/28 recovery id, the form decoding normalizes an inner secp256k1 v to.
 	secp := make([]byte, 65)
+	secp[64] = 27
 
 	for name, envelope := range map[string][]byte{
 		"v1 secp":     append(append([]byte{0x03}, user...), secp...),

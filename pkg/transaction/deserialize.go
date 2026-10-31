@@ -499,14 +499,17 @@ func decodeSignatureEnvelope(envelopeBytes []byte) (*signer.SignatureEnvelope, e
 		if err := signer.ValidatePrimitive(envelopeBytes[21:]); err != nil {
 			return nil, fmt.Errorf("invalid Keychain inner signature: %w", err)
 		}
-		// The inner secp256k1 recovery id may be 0/1 or 27/28; the node accepts both and
+		// An inner secp256k1 recovery id may be 0/1 or 27/28; the node accepts both and
 		// re-encodes it as 27/28. Do the same so Tx.Hash() matches the node's hash.
+		// P256 and WebAuthn inner signatures are left unchanged.
 		raw := append([]byte(nil), envelopeBytes...)
-		v, err := decodeRecoveryID(raw[85], "recovery id in keychain inner signature")
-		if err != nil {
-			return nil, err
+		if len(raw) == 21+65 {
+			v, err := decodeRecoveryID(raw[85], "recovery id in keychain inner signature")
+			if err != nil {
+				return nil, err
+			}
+			raw[85] = 27 + v
 		}
-		raw[85] = 27 + v
 		return &signer.SignatureEnvelope{
 			Type: "keychain",
 			Raw:  raw,
