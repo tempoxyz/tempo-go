@@ -75,13 +75,13 @@ func AddFeePayerSignature(tx *Tx, sgn *signer.Signer) error {
 	// Recover sender address from signature if not set
 	sender := tx.From
 	if sender == (common.Address{}) {
-		// Recover from signature
-		signPayload, err := GetSignPayload(tx)
-		if err != nil {
-			return fmt.Errorf("failed to get sign payload: %w", err)
+		// Recover from the signature (secp256k1, P256 or WebAuthn). A
+		// Keychain envelope names its account but proves nothing about the
+		// key's authorization, so its sender must be set explicitly.
+		if tx.Signature.Type == "keychain" {
+			return fmt.Errorf("failed to recover sender address: set tx.From for a keychain signature")
 		}
-
-		recoveredSender, err := signer.RecoverAddress(signPayload, tx.Signature.Signature)
+		recoveredSender, err := VerifySignature(tx)
 		if err != nil {
 			return fmt.Errorf("failed to recover sender address: %w", err)
 		}
@@ -104,16 +104,43 @@ func AddFeePayerSignature(tx *Tx, sgn *signer.Signer) error {
 	return nil
 }
 
-// VerifySignature verifies the sender signature on a transaction.
-// Only secp256k1 signatures can be verified via ecrecover. For P256, WebAuthn,
-// or Keychain signatures, use on-chain verification via the Account Keychain precompile.
+// VerifySignature verifies the sender signature on a transaction and returns
+// the sender: the recovered secp256k1 address, or the address of the public
+// key of a P256 or WebAuthn signature. Keychain (access key) signatures are
+// rejected with ErrUnsupportedSignatureType: verify them with RecoverSigner or
+// keychain.VerifyAccessKeySignature, then check the key's authorization on
+// chain.
 func VerifySignature(tx *Tx) (common.Address, error) {
 	if tx.Signature == nil {
 		return common.Address{}, ErrNoSignature
 	}
 
+	if tx.Signature.Type == SignatureTypeP256 || tx.Signature.Type == SignatureTypeWebAuthn {
+		if tx.Signature.Raw == nil {
+			return common.Address{}, fmt.Errorf("%s signature envelope has no raw bytes", tx.Signature.Type)
+		}
+		wantPrefix := signer.SignatureTypeP256
+		if tx.Signature.Type == SignatureTypeWebAuthn {
+			wantPrefix = signer.SignatureTypeWebAuthn
+		}
+		// RecoverSigner dispatches on the raw bytes: a Keychain envelope
+		// labelled p256 or webauthn must not pass as a primitive sender.
+		if len(tx.Signature.Raw) == 0 || tx.Signature.Raw[0] != wantPrefix {
+			return common.Address{}, fmt.Errorf("%w: %s envelope does not hold a %s signature",
+				ErrUnsupportedSignatureType, tx.Signature.Type, tx.Signature.Type)
+		}
+		recovered, err := RecoverSigner(tx)
+		if err != nil {
+			return common.Address{}, fmt.Errorf("failed to verify %s signature: %w", tx.Signature.Type, err)
+		}
+		if recovered.Keychain != 0 {
+			return common.Address{}, fmt.Errorf("%w: keychain", ErrUnsupportedSignatureType)
+		}
+		return recovered.Account, nil
+	}
+
 	if tx.Signature.Type != "" && tx.Signature.Type != SignatureTypeSecp256k1 {
-		return common.Address{}, fmt.Errorf("%w: %s (only secp256k1 can be verified off-chain)",
+		return common.Address{}, fmt.Errorf("%w: %s (verify with RecoverSigner)",
 			ErrUnsupportedSignatureType, tx.Signature.Type)
 	}
 

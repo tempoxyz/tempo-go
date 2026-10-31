@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/tempoxyz/tempo-go/pkg/signer"
 )
 
 // GetRemainingLimitSelector is the function selector for getRemainingLimit(address,address,address).
@@ -87,9 +88,10 @@ func ParseBoolResult(result []byte) (bool, error) {
 	}
 }
 
-// IsKeychainSignature checks if the given signature bytes represent a Keychain signature.
+// IsKeychainSignature checks if the given signature bytes are a Keychain V2
+// signature: 0x04 || root account || a secp256k1, P256 or WebAuthn signature.
 func IsKeychainSignature(sig []byte) bool {
-	return len(sig) == KeychainSignatureLength && sig[0] == KeychainSignatureType
+	return ValidateAccessKeySignature(sig) == nil
 }
 
 // GetKeychainAddress returns the AccountKeychain precompile address.
@@ -133,12 +135,19 @@ type AuthorizedKey struct {
 }
 
 // ValidateAccessKeySignature is a helper that validates a signature is a proper keychain signature.
+//
+// It accepts a Keychain V2 envelope with any primitive inner signature
+// (86 bytes for secp256k1, longer for P256 and WebAuthn) and checks the
+// layout only.
 func ValidateAccessKeySignature(sig []byte) error {
-	if len(sig) != KeychainSignatureLength {
-		return fmt.Errorf("invalid signature length: expected %d, got %d", KeychainSignatureLength, len(sig))
+	if len(sig) < 22 {
+		return fmt.Errorf("invalid signature length: expected at least 22, got %d", len(sig))
 	}
 	if sig[0] != KeychainSignatureType {
 		return fmt.Errorf("invalid signature type: expected 0x%02x, got 0x%02x", KeychainSignatureType, sig[0])
+	}
+	if err := signer.ValidatePrimitive(sig[21:]); err != nil {
+		return fmt.Errorf("invalid keychain inner signature: %w", err)
 	}
 	return nil
 }

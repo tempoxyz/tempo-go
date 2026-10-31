@@ -490,9 +490,14 @@ func decodeSignatureEnvelope(envelopeBytes []byte) (*signer.SignatureEnvelope, e
 			Raw:  envelopeBytes,
 		}, nil
 
-	case 0x04: // Keychain: 0x04 + user_address (20 bytes) + inner_sig (65 bytes) = 86 bytes
-		if len(envelopeBytes) != 86 {
-			return nil, fmt.Errorf("invalid Keychain signature length: expected 86, got %d", len(envelopeBytes))
+	case signer.SignatureTypeKeychainV1, signer.SignatureTypeKeychainV2:
+		// Keychain: type (0x03 V1, 0x04 V2) + user_address (20 bytes) + an
+		// inner primitive signature (secp256k1, P256 or WebAuthn).
+		if len(envelopeBytes) < 21 {
+			return nil, fmt.Errorf("invalid Keychain signature length: got %d", len(envelopeBytes))
+		}
+		if err := signer.ValidatePrimitive(envelopeBytes[21:]); err != nil {
+			return nil, fmt.Errorf("invalid Keychain inner signature: %w", err)
 		}
 		// The inner secp256k1 recovery id may be 0/1 or 27/28; the node accepts both and
 		// re-encodes it as 27/28. Do the same so Tx.Hash() matches the node's hash.
