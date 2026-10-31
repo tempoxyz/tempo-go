@@ -181,6 +181,12 @@ func (tx *Tx) Validate() error {
 		return fmt.Errorf("%w: max priority fee per gas must be set", ErrInvalidTransaction)
 	}
 
+	// As in ox and pytempo, the check applies once a max fee is set.
+	if tx.MaxFeePerGas.Sign() > 0 && tx.MaxPriorityFeePerGas.Cmp(tx.MaxFeePerGas) > 0 {
+		return fmt.Errorf("%w: max priority fee per gas (%s) must not exceed max fee per gas (%s)",
+			ErrInvalidTransaction, tx.MaxPriorityFeePerGas, tx.MaxFeePerGas)
+	}
+
 	if tx.Gas == 0 {
 		return fmt.Errorf("%w: gas must be greater than 0", ErrInvalidTransaction)
 	}
@@ -204,11 +210,19 @@ func (tx *Tx) Validate() error {
 		return fmt.Errorf("%w: expiring nonce transaction must set validBefore", ErrInvalidTransaction)
 	}
 
+	// Zero means unset. When both are set the window must be non-empty, as the node
+	// requires (valid_before must be greater than valid_after).
+	if tx.ValidBefore != 0 && tx.ValidAfter != 0 && tx.ValidBefore <= tx.ValidAfter {
+		return fmt.Errorf("%w: validBefore (%d) must be greater than validAfter (%d)",
+			ErrInvalidTransaction, tx.ValidBefore, tx.ValidAfter)
+	}
+
 	return nil
 }
 
 // Hash computes the hash of a fully signed transaction.
-// This returns the transaction hash that would appear on-chain.
+// This returns the transaction hash that would appear on-chain: keccak256 of the
+// serialized bytes, with secp256k1 recovery ids encoded as 27/28 as the node does.
 // The transaction must be signed before calling this method.
 func (tx *Tx) Hash() (common.Hash, error) {
 	if tx.Signature == nil {

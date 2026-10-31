@@ -311,7 +311,7 @@ func encodeSignature(sig *signer.Signature) []interface{} {
 
 // encodeSignatureEnvelope encodes a signature envelope.
 // Per Tempo Transaction spec, signature types are detected by length and type prefix:
-// - secp256k1: raw 65 bytes (r || s || yParity) - no type prefix
+// - secp256k1: raw 65 bytes (r || s || v), v = 27 + yParity - no type prefix
 // - keychain: raw bytes (0x04 || user_address || inner_sig) - type prefix 0x04
 // - p256: raw bytes (0x01 || signature data) - type prefix 0x01
 // - webauthn: raw bytes (0x02 || webauthn_data) - type prefix 0x02
@@ -320,7 +320,7 @@ func encodeSignatureEnvelope(envelope *signer.SignatureEnvelope) ([]byte, error)
 		return []byte{}, nil
 	}
 
-	// secp256k1: raw 65 bytes (no type prefix)
+	// secp256k1: raw 65 bytes r || s || v (no type prefix), v = 27/28
 	if envelope.Type == "secp256k1" || envelope.Type == "" {
 		if envelope.Signature == nil {
 			return nil, fmt.Errorf("secp256k1 signature envelope has no parsed signature")
@@ -343,17 +343,43 @@ func encodeSignatureEnvelope(envelope *signer.SignatureEnvelope) ([]byte, error)
 		result := make([]byte, 65)
 		copy(result[32-len(rBytes):32], rBytes)
 		copy(result[64-len(sBytes):64], sBytes)
-		result[64] = envelope.Signature.YParity
+		// The node (tempo-primitives PrimitiveSignature::to_bytes) writes the recovery id
+		// as 27/28 and reports the hash of that encoding, so write the same form.
+		result[64] = 27 + envelope.Signature.YParity
 
 		return result, nil
 	}
 
 	// keychain, p256, webauthn: use raw bytes directly (already includes type prefix)
 	if envelope.Raw != nil {
-		return envelope.Raw, nil
+		return normalizeKeychainInnerV(envelope.Raw)
 	}
 
 	return nil, fmt.Errorf("signature envelope type %q has no raw bytes", envelope.Type)
+}
+
+// keychainSecp256k1Len is a keychain envelope wrapping a secp256k1 signature:
+// type (0x03 V1 or 0x04 V2) || 20-byte root account || r || s || v.
+const keychainSecp256k1Len = 1 + 20 + 65
+
+// normalizeKeychainInnerV writes the inner secp256k1 recovery id of a keychain
+// envelope as 27/28, the form the node re-encodes to and hashes, however the
+// caller filled Raw. Other envelopes are returned unchanged.
+func normalizeKeychainInnerV(raw []byte) ([]byte, error) {
+	if len(raw) != keychainSecp256k1Len || (raw[0] != 0x03 && raw[0] != 0x04) {
+		return raw, nil
+	}
+	v := raw[keychainSecp256k1Len-1]
+	switch v {
+	case 27, 28:
+		return raw, nil
+	case 0, 1:
+		out := append([]byte(nil), raw...)
+		out[keychainSecp256k1Len-1] = 27 + v
+		return out, nil
+	default:
+		return nil, fmt.Errorf("invalid keychain inner recovery id: must be 0, 1, 27 or 28, got %d", v)
+	}
 }
 
 // bigIntToBytes converts a *big.Int to bytes, returning empty bytes for nil or 0.

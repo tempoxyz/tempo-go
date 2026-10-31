@@ -30,6 +30,9 @@ const (
 //
 //	0x04 || root_account (20 bytes) || inner_signature (65 bytes)
 //
+// The inner signature is r || s || v with v = 27/28. innerSig.YParity may be
+// 0/1 or 27/28.
+//
 // Parameters:
 //   - innerSig: The secp256k1 signature from the access key
 //   - rootAccount: The address of the root account (the account the access key acts on behalf of)
@@ -44,6 +47,10 @@ func BuildKeychainSignature(innerSig *signer.Signature, rootAccount common.Addre
 	}
 	if l := len(innerSig.S.Bytes()); l > 32 {
 		return nil, fmt.Errorf("inner signature S exceeds 32 bytes (got %d)", l)
+	}
+	v, err := normalizeRecoveryID(innerSig.YParity)
+	if err != nil {
+		return nil, fmt.Errorf("inner signature: %w", err)
 	}
 
 	result := make([]byte, KeychainSignatureLength)
@@ -60,8 +67,8 @@ func BuildKeychainSignature(innerSig *signer.Signature, rootAccount common.Addre
 	// Bytes 53-84: S (left-padded to 32 bytes)
 	innerSig.S.FillBytes(result[53:85])
 
-	// Byte 85: V (yParity)
-	result[85] = innerSig.YParity
+	// Byte 85: V as 27/28, the form the node (tempo-primitives) and the other SDKs write.
+	result[85] = v
 
 	return result, nil
 }
@@ -131,7 +138,8 @@ func SignWithAccessKey(tx *transaction.Tx, accessKeySigner *signer.Signer, rootA
 
 // ParseKeychainSignature parses a Keychain signature into its components.
 //
-// Returns the signature type, root account address, and inner signature.
+// Returns the signature type, root account address, and inner signature, whose
+// YParity is 0 or 1. The inner recovery id byte may be 27/28 or 0/1.
 // Returns an error if the signature is invalid.
 func ParseKeychainSignature(sig []byte) (sigType byte, rootAccount common.Address, innerSig *signer.Signature, err error) {
 	if len(sig) != KeychainSignatureLength {
@@ -145,10 +153,16 @@ func ParseKeychainSignature(sig []byte) (sigType byte, rootAccount common.Addres
 
 	rootAccount = common.BytesToAddress(sig[1:21])
 
+	// The node accepts a 27/28 (canonical) or 0/1 recovery id.
+	v, err := normalizeRecoveryID(sig[85])
+	if err != nil {
+		return 0, common.Address{}, nil, fmt.Errorf("invalid keychain inner signature: %w", err)
+	}
+
 	innerSig = signer.NewSignature(
 		byteSliceToBigInt(sig[21:53]), // R
 		byteSliceToBigInt(sig[53:85]), // S
-		sig[85],                       // YParity
+		v-27,                          // YParity (0 or 1)
 	)
 
 	return sigType, rootAccount, innerSig, nil
@@ -198,4 +212,16 @@ func VerifyAccessKeySignature(tx *transaction.Tx) (accessKeyAddr, rootAccount co
 	}
 
 	return accessKeyAddr, rootAccount, nil
+}
+
+// normalizeRecoveryID maps a secp256k1 recovery id given as 0/1 or 27/28 to 27/28.
+func normalizeRecoveryID(v byte) (byte, error) {
+	switch v {
+	case 0, 1:
+		return 27 + v, nil
+	case 27, 28:
+		return v, nil
+	default:
+		return 0, fmt.Errorf("invalid secp256k1 recovery id: must be 0, 1, 27, or 28, got %d", v)
+	}
 }

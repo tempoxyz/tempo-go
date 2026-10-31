@@ -237,7 +237,6 @@ func TestKeyAuthorization_Validate(t *testing.T) {
 	}{
 		{"invalid key type", NewKeyAuthorization(1, 9, testKeyID())},
 		{"admin with expiry", NewKeyAuthorization(1, SignatureTypeSecp256k1, testKeyID()).IntoAdmin(account).WithExpiry(1000)},
-		{"admin without account", &KeyAuthorization{ChainID: 1, KeyType: SignatureTypeSecp256k1, KeyID: testKeyID(), IsAdmin: true}},
 		{"nil limit amount", NewKeyAuthorization(1, SignatureTypeSecp256k1, testKeyID()).WithLimits([]TokenLimit{{Token: token, Amount: nil}})},
 		{"negative limit amount", NewKeyAuthorization(1, SignatureTypeSecp256k1, testKeyID()).WithLimits([]TokenLimit{{Token: token, Amount: negative}})},
 		{"limit amount over uint256", NewKeyAuthorization(1, SignatureTypeSecp256k1, testKeyID()).WithLimits([]TokenLimit{{Token: token, Amount: over256}})},

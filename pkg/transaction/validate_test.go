@@ -155,3 +155,47 @@ func TestTransaction_Validate(t *testing.T) {
 		})
 	}
 }
+
+func TestTransaction_Validate_FeesAndValidityWindow(t *testing.T) {
+	base := func() *Tx {
+		return &Tx{
+			ChainID:              big.NewInt(42424),
+			MaxPriorityFeePerGas: big.NewInt(1000000000),
+			MaxFeePerGas:         big.NewInt(2000000000),
+			Gas:                  100000,
+			Calls: []Call{{
+				To:    addrPtr(common.HexToAddress("0x1234567890123456789012345678901234567890")),
+				Value: big.NewInt(0),
+			}},
+			NonceKey: big.NewInt(0),
+		}
+	}
+
+	tests := []struct {
+		name    string
+		mutate  func(tx *Tx)
+		wantErr bool
+	}{
+		{"tip equal to fee cap", func(tx *Tx) { tx.MaxPriorityFeePerGas = big.NewInt(2000000000) }, false},
+		{"tip above fee cap", func(tx *Tx) { tx.MaxPriorityFeePerGas = big.NewInt(2000000001) }, true},
+		{"tip set without fee cap (checked once a fee cap is set, as in ox)", func(tx *Tx) { tx.MaxFeePerGas = big.NewInt(0) }, false},
+		{"validBefore after validAfter", func(tx *Tx) { tx.ValidAfter, tx.ValidBefore = 100, 101 }, false},
+		{"equal validity window", func(tx *Tx) { tx.ValidAfter, tx.ValidBefore = 100, 100 }, true},
+		{"inverted validity window", func(tx *Tx) { tx.ValidAfter, tx.ValidBefore = 200, 100 }, true},
+		{"only validAfter", func(tx *Tx) { tx.ValidAfter = 200 }, false},
+		{"only validBefore", func(tx *Tx) { tx.ValidBefore = 200 }, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tx := base()
+			tt.mutate(tx)
+			err := tx.Validate()
+			if tt.wantErr {
+				assert.ErrorIs(t, err, ErrInvalidTransaction)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}

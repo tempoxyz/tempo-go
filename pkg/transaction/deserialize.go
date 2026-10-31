@@ -207,7 +207,11 @@ func Deserialize(serialized string) (*Tx, error) {
 		// No optional fields.
 	case 14:
 		if keyAuth, isList := raw[13].([]interface{}); isList {
-			tx.KeyAuthorization = keyAuth
+			normalized, err := normalizeKeyAuthorizationSignature(keyAuth)
+			if err != nil {
+				return nil, err
+			}
+			tx.KeyAuthorization = normalized
 			break
 		}
 
@@ -221,7 +225,11 @@ func Deserialize(serialized string) (*Tx, error) {
 		if !isList {
 			return nil, fmt.Errorf("invalid field 13 type for 15-field transaction: expected keyAuthorization list")
 		}
-		tx.KeyAuthorization = keyAuth
+		normalized, err := normalizeKeyAuthorizationSignature(keyAuth)
+		if err != nil {
+			return nil, err
+		}
+		tx.KeyAuthorization = normalized
 
 		sigEnvelope, err := parseSignatureEnvelopeField(raw[14], 14, true)
 		if err != nil {
@@ -392,6 +400,28 @@ func decodeYParity(yParityBytes []byte, context string) (uint8, error) {
 	return yParity, nil
 }
 
+// normalizeKeyAuthorizationSignature returns the signed key authorization
+// [authorization, signature] with a 65-byte secp256k1 signature's recovery id
+// written as 27/28, the form the node re-encodes to and hashes. Other signature
+// types, and malformed shapes left for keychain.DecodeKeyAuthorization to
+// reject, are returned unchanged.
+func normalizeKeyAuthorizationSignature(keyAuth []interface{}) ([]interface{}, error) {
+	if len(keyAuth) != 2 {
+		return keyAuth, nil
+	}
+	sig, isBytes := keyAuth[1].([]byte)
+	if !isBytes || len(sig) != 65 || sig[64] == 27 || sig[64] == 28 {
+		return keyAuth, nil
+	}
+	yParity, err := decodeRecoveryID(sig[64], "key authorization signature recovery id")
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrInvalidTransaction, err)
+	}
+	out := append([]byte(nil), sig...)
+	out[64] = 27 + yParity
+	return []interface{}{keyAuth[0], out}, nil
+}
+
 func decodeRecoveryID(recoveryID byte, context string) (uint8, error) {
 	switch recoveryID {
 	case 0, 1:
@@ -447,7 +477,7 @@ func decodeSignature(sigTuple []interface{}) (*signer.Signature, error) {
 
 // decodeSignatureEnvelope decodes a signature envelope.
 // Per Tempo Transaction spec, signature types are detected by length and type prefix:
-// - secp256k1: raw 65 bytes (r || s || recoveryID) - no type prefix
+// - secp256k1: raw 65 bytes (r || s || recoveryID) - no type prefix; recoveryID 0/1 or 27/28
 // - keychain: 0x04 + user_address (20 bytes) + inner_sig (65 bytes) = 86 bytes
 // - p256: 0x01 + 129 bytes = 130 bytes
 // - webauthn: 0x02 + variable data (129-2049 bytes total)
@@ -501,9 +531,17 @@ func decodeSignatureEnvelope(envelopeBytes []byte) (*signer.SignatureEnvelope, e
 		if len(envelopeBytes) != 86 {
 			return nil, fmt.Errorf("invalid Keychain signature length: expected 86, got %d", len(envelopeBytes))
 		}
+		// The inner secp256k1 recovery id may be 0/1 or 27/28; the node accepts both and
+		// re-encodes it as 27/28. Do the same so Tx.Hash() matches the node's hash.
+		raw := append([]byte(nil), envelopeBytes...)
+		v, err := decodeRecoveryID(raw[85], "recovery id in keychain inner signature")
+		if err != nil {
+			return nil, err
+		}
+		raw[85] = 27 + v
 		return &signer.SignatureEnvelope{
 			Type: "keychain",
-			Raw:  envelopeBytes,
+			Raw:  raw,
 		}, nil
 
 	default:
