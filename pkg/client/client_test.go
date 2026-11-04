@@ -189,6 +189,28 @@ func TestWithOptions(t *testing.T) {
 		assert.NoError(t, err)
 	})
 
+	t.Run("WithHeaders", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			assert.Equal(t, "test-key", r.Header.Get("tempo-api-key"))
+			assert.Equal(t, "b", r.Header.Get("X-Extra"))
+			assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
+
+			w.Header().Set("Content-Type", "application/json")
+			resp := NewJSONRPCResponse(1, "0xhash")
+			json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		headers := map[string]string{"tempo-api-key": "test-key", "X-Extra": "a"}
+		client := New(server.URL,
+			WithHeaders(headers),
+			WithHeaders(map[string]string{"X-Extra": "b", "Content-Type": "text/plain"}),
+		)
+		headers["tempo-api-key"] = "changed after New"
+		_, err := client.SendRawTransaction(context.Background(), "0x76...")
+		assert.NoError(t, err)
+	})
+
 	t.Run("WithHTTPClient", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")

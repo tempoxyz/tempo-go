@@ -25,6 +25,7 @@ type Client struct {
 	rpcURL     string
 	username   string
 	password   string
+	headers    map[string]string
 	httpClient *http.Client
 }
 
@@ -36,6 +37,21 @@ func WithAuth(username, password string) Option {
 	return func(c *Client) {
 		c.username = username
 		c.password = password
+	}
+}
+
+// WithHeaders sets headers sent with every JSON-RPC request, such as a Tempo
+// API key in the tempo-api-key header for the hosted RPC at
+// https://api.tempo.xyz/rpc. Later calls add to or replace earlier ones.
+// Content-Type is always application/json.
+func WithHeaders(headers map[string]string) Option {
+	return func(c *Client) {
+		if c.headers == nil {
+			c.headers = make(map[string]string, len(headers))
+		}
+		for name, value := range headers {
+			c.headers[name] = value
+		}
 	}
 }
 
@@ -185,6 +201,9 @@ func (c *Client) newHTTPRequest(ctx context.Context, body []byte) (*http.Request
 	req, err := http.NewRequestWithContext(ctx, "POST", c.rpcURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
+	}
+	for name, value := range c.headers {
+		req.Header.Set(name, value)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if c.username != "" || c.password != "" {
