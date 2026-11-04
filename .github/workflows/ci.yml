@@ -31,6 +31,7 @@ jobs:
         persist-credentials: false
 
     - name: Set up Go
+      id: setup-go
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
         go-version: ${{ matrix.go-version }}
@@ -43,9 +44,9 @@ jobs:
         path: |
           ~/.cache/go-build
           ~/go/pkg/mod
-        key: ${{ runner.os }}-go-${{ matrix.go-version }}-${{ hashFiles('**/go.sum') }}
+        key: ${{ runner.os }}-go-${{ steps.setup-go.outputs.go-version }}-${{ hashFiles('**/go.sum') }}
         restore-keys: |
-          ${{ runner.os }}-go-${{ matrix.go-version }}-
+          ${{ runner.os }}-go-${{ steps.setup-go.outputs.go-version }}-
 
     - name: Download dependencies
       run: go mod download
@@ -85,21 +86,22 @@ jobs:
         persist-credentials: false
 
     - name: Set up Go
+      id: setup-go
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
         go-version: '1.25.x'
         cache: false
 
-    # Restore-only: the Test (Go 1.25.x) job saves this cache on main.
+    # Restore-only: the Test (Go 1.25.x) job saves this cache on main, keyed on the installed Go version.
     - name: Restore Go modules cache
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: |
           ~/.cache/go-build
           ~/go/pkg/mod
-        key: ${{ runner.os }}-go-1.25.x-${{ hashFiles('**/go.sum') }}
+        key: ${{ runner.os }}-go-${{ steps.setup-go.outputs.go-version }}-${{ hashFiles('**/go.sum') }}
         restore-keys: |
-          ${{ runner.os }}-go-1.25.x-
+          ${{ runner.os }}-go-${{ steps.setup-go.outputs.go-version }}-
 
     - name: Download dependencies
       run: go mod download
@@ -157,21 +159,22 @@ jobs:
         persist-credentials: false
 
     - name: Set up Go
+      id: setup-go
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
         go-version: '1.25.x'
         cache: false
 
-    # Restore-only: the Test (Go 1.25.x) job saves this cache on main.
+    # Restore-only: the Test (Go 1.25.x) job saves this cache on main, keyed on the installed Go version.
     - name: Restore Go modules cache
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: |
           ~/.cache/go-build
           ~/go/pkg/mod
-        key: ${{ runner.os }}-go-1.25.x-${{ hashFiles('**/go.sum') }}
+        key: ${{ runner.os }}-go-${{ steps.setup-go.outputs.go-version }}-${{ hashFiles('**/go.sum') }}
         restore-keys: |
-          ${{ runner.os }}-go-1.25.x-
+          ${{ runner.os }}-go-${{ steps.setup-go.outputs.go-version }}-
 
     - name: Download dependencies
       run: go mod download
@@ -202,21 +205,22 @@ jobs:
         persist-credentials: false
 
     - name: Set up Go
+      id: setup-go
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
         go-version: '1.25.x'
         cache: false
 
-    # Restore-only: the Test (Go 1.25.x) job saves this cache on main.
+    # Restore-only: the Test (Go 1.25.x) job saves this cache on main, keyed on the installed Go version.
     - name: Restore Go modules cache
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: |
           ~/.cache/go-build
           ~/go/pkg/mod
-        key: ${{ runner.os }}-go-1.25.x-${{ hashFiles('**/go.sum') }}
+        key: ${{ runner.os }}-go-${{ steps.setup-go.outputs.go-version }}-${{ hashFiles('**/go.sum') }}
         restore-keys: |
-          ${{ runner.os }}-go-1.25.x-
+          ${{ runner.os }}-go-${{ steps.setup-go.outputs.go-version }}-
 
     - name: Download dependencies
       run: go mod download
