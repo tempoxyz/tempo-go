@@ -22,10 +22,11 @@ const (
 
 // Client is a basic HTTP client for interacting with the Tempo blockchain.
 type Client struct {
-	rpcURL     string
-	username   string
-	password   string
-	httpClient *http.Client
+	rpcURL          string
+	username        string
+	password        string
+	httpClient      *http.Client
+	timeoutOverride *time.Duration
 }
 
 // Option is a functional option for configuring the Client.
@@ -40,16 +41,25 @@ func WithAuth(username, password string) Option {
 }
 
 // WithTimeout configures the HTTP timeout for the client.
+//
+// The timeout is recorded and applied after all options are processed, so it is
+// honored regardless of option order — a WithHTTPClient supplied afterwards can
+// no longer silently discard it. An explicit WithTimeout also takes precedence
+// over any timeout carried by a custom client passed via WithHTTPClient.
 func WithTimeout(timeout time.Duration) Option {
 	return func(c *Client) {
-		c.httpClient.Timeout = timeout
+		c.timeoutOverride = &timeout
 	}
 }
 
-// WithHTTPClient configures a custom HTTP client.
+// WithHTTPClient configures a custom HTTP client. A nil client is ignored so the
+// default client (or an earlier WithHTTPClient) is preserved instead of leaving
+// the client in a nil state that would panic on the first request.
 func WithHTTPClient(httpClient *http.Client) Option {
 	return func(c *Client) {
-		c.httpClient = httpClient
+		if httpClient != nil {
+			c.httpClient = httpClient
+		}
 	}
 }
 
@@ -65,6 +75,17 @@ func New(rpcURL string, opts ...Option) *Client {
 
 	for _, opt := range opts {
 		opt(c)
+	}
+
+	// Defensive: never leave the client without an HTTP client to use.
+	if c.httpClient == nil {
+		c.httpClient = &http.Client{Timeout: defaultTimeout}
+	}
+
+	// Apply an explicit timeout last so it survives WithHTTPClient regardless of
+	// the order the options were provided in.
+	if c.timeoutOverride != nil {
+		c.httpClient.Timeout = *c.timeoutOverride
 	}
 
 	return c
