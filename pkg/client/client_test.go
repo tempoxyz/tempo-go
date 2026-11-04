@@ -204,7 +204,7 @@ func TestWithOptions(t *testing.T) {
 		headers := map[string]string{"tempo-api-key": "test-key", "X-Extra": "a"}
 		client := New(server.URL,
 			WithHeaders(headers),
-			WithHeaders(map[string]string{"X-Extra": "b", "Content-Type": "text/plain"}),
+			WithHeaders(map[string]string{"x-extra": "b", "Content-Type": "text/plain"}),
 		)
 		headers["tempo-api-key"] = "changed after New"
 		_, err := client.SendRawTransaction(context.Background(), "0x76...")

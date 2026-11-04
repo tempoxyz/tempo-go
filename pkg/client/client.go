@@ -50,7 +50,8 @@ func WithHeaders(headers map[string]string) Option {
 			c.headers = make(map[string]string, len(headers))
 		}
 		for name, value := range headers {
-			c.headers[name] = value
+			// Canonical keys make differently cased names replace each other.
+			c.headers[http.CanonicalHeaderKey(name)] = value
 		}
 	}
 }
