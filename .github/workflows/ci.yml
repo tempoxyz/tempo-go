@@ -102,7 +102,8 @@ jobs:
         exit 1
 
     - name: Run integration tests (localnet lacks fee token liquidity for on-chain tests)
-      run: go test -count=1 -v -run "TestIntegration_NodeConnection|TestIntegration_BuilderValidation|TestIntegration_RoundTrip|TestIntegration_T8CurrentCommittee" -timeout=5m ./tests
+      run: go test -count=1 -v -run "TestIntegration_NodeConnection|TestIntegration_BuilderValidation|TestIntegration_RoundTrip|TestIntegration_T8CurrentCommittee" -timeout=5m .
+      working-directory: tests
       env:
         TEMPO_RPC_URL: http://localhost:8545
         TEMPO_HARDFORK: T8
@@ -144,7 +145,8 @@ jobs:
         GOVCS: '*:git'
 
     - name: Run integration tests against devnet
-      run: go test -count=1 -v -run TestIntegration -timeout=10m ./tests
+      run: go test -count=1 -v -run TestIntegration -timeout=10m .
+      working-directory: tests
       env:
         TEMPO_RPC_URL: ${{ secrets.TEMPO_DEVNET_RPC_URL }}
 
@@ -177,7 +179,8 @@ jobs:
         GOVCS: '*:git'
 
     - name: Run integration tests against testnet
-      run: go test -count=1 -v -run TestIntegration -timeout=10m ./tests
+      run: go test -count=1 -v -run TestIntegration -timeout=10m .
+      working-directory: tests
       env:
         TEMPO_RPC_URL: ${{ secrets.TEMPO_TESTNET_RPC_URL }}
         # Testnet (moderato) hard-forked T2 → T3 on ~2026-04-21. The default
