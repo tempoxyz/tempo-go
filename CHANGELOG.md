@@ -1,5 +1,11 @@
 # Changelog
 
+## `github.com/tempoxyz/tempo-go@0.8.0`
+
+### Minor Changes
+
+- Added `client.WithHeaders`, which sends headers with every JSON-RPC request, such as a Tempo API key in the `tempo-api-key` header for the hosted RPC at https://api.tempo.xyz/rpc. (by @brendanjryan, [#139](https://github.com/tempoxyz/tempo-go/pull/139))
+
 ## `github.com/tempoxyz/tempo-go@0.7.0`
 
 ### Minor Changes
