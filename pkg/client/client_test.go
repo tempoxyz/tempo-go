@@ -6,6 +6,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -187,6 +188,58 @@ func TestWithOptions(t *testing.T) {
 		client := New(server.URL, WithAuth(expectedUsername, expectedPassword))
 		_, err := client.SendRawTransaction(context.Background(), "0x76...")
 		assert.NoError(t, err)
+	})
+
+	t.Run("WithHeaders", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			assert.Equal(t, "test-key", r.Header.Get("tempo-api-key"))
+			assert.Equal(t, "b", r.Header.Get("X-Extra"))
+			assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
+
+			w.Header().Set("Content-Type", "application/json")
+			resp := NewJSONRPCResponse(1, "0xhash")
+			json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		headers := map[string]string{"tempo-api-key": "test-key", "X-Extra": "a"}
+		client := New(server.URL,
+			WithHeaders(headers),
+			WithHeaders(map[string]string{"x-extra": "b", "Content-Type": "text/plain"}),
+		)
+		headers["tempo-api-key"] = "changed after New"
+		_, err := client.SendRawTransaction(context.Background(), "0x76...")
+		assert.NoError(t, err)
+	})
+
+	t.Run("WithHeaders drops headers on cross-host redirects", func(t *testing.T) {
+		var otherKey, sameKey string
+		other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			otherKey = r.Header.Get("tempo-api-key")
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(NewJSONRPCResponse(1, "0xhash"))
+		}))
+		defer other.Close()
+
+		var server *httptest.Server
+		server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/same":
+				sameKey = r.Header.Get("tempo-api-key")
+				// 127.0.0.1 and localhost are different hosts to net/http.
+				otherURL := strings.Replace(other.URL, "127.0.0.1", "localhost", 1)
+				http.Redirect(w, r, otherURL, http.StatusTemporaryRedirect)
+			default:
+				http.Redirect(w, r, server.URL+"/same", http.StatusTemporaryRedirect)
+			}
+		}))
+		defer server.Close()
+
+		client := New(server.URL, WithHeaders(map[string]string{"tempo-api-key": "test-key"}))
+		_, err := client.SendRawTransaction(context.Background(), "0x76...")
+		assert.NoError(t, err)
+		assert.Equal(t, "test-key", sameKey, "same-host redirect keeps the header")
+		assert.Empty(t, otherKey, "cross-host redirect drops the header")
 	})
 
 	t.Run("WithHTTPClient", func(t *testing.T) {

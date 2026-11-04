@@ -1,18 +1,14 @@
 version: 2
 updates:
   - package-ecosystem: gomod
-    directory: /
-    schedule:
-      interval: weekly
-    cooldown:
-      default-days: 7
-      semver-major-days: 7
-    groups:
-      go-deps:
-        patterns: ["*"]
-
-  - package-ecosystem: gomod
-    directory: /examples/feepayer
+    # One entry for every Go module, so a grouped PR bumps all go.mod files
+    # together: tests/ and the examples replace the root module, so a root-only
+    # bump would leave their go.mod out of date.
+    directories:
+      - /
+      - /tests
+      - /examples/feepayer
+      - /examples/parallel-nonces
     schedule:
       interval: weekly
     cooldown:

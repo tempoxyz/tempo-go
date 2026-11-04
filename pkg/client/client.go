@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
@@ -25,6 +26,7 @@ type Client struct {
 	rpcURL     string
 	username   string
 	password   string
+	headers    map[string]string
 	httpClient *http.Client
 }
 
@@ -36,6 +38,25 @@ func WithAuth(username, password string) Option {
 	return func(c *Client) {
 		c.username = username
 		c.password = password
+	}
+}
+
+// WithHeaders sets headers sent with every JSON-RPC request, such as a Tempo
+// API key in the tempo-api-key header for the hosted RPC at
+// https://api.tempo.xyz/rpc. Later calls add to or replace earlier ones.
+// Content-Type is always application/json. net/http sets Host,
+// Content-Length, Transfer-Encoding and Trailer itself and ignores them here.
+// The headers are not sent on a redirect to another host or from https to
+// http, so a secret such as an API key stays with the configured RPC host.
+func WithHeaders(headers map[string]string) Option {
+	return func(c *Client) {
+		if c.headers == nil {
+			c.headers = make(map[string]string, len(headers))
+		}
+		for name, value := range headers {
+			// Canonical keys make differently cased names replace each other.
+			c.headers[http.CanonicalHeaderKey(name)] = value
+		}
 	}
 }
 
@@ -157,7 +178,7 @@ func (c *Client) sendRequest(ctx context.Context, request *JSONRPCRequest) (*JSO
 		return nil, err
 	}
 
-	httpResp, err := c.httpClient.Do(httpReq)
+	httpResp, err := c.do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send HTTP request: %w", err)
 	}
@@ -180,11 +201,43 @@ func (c *Client) sendRequest(ctx context.Context, request *JSONRPCRequest) (*JSO
 	return &response, nil
 }
 
+// do sends req, keeping the WithHeaders headers off redirects to other hosts
+// and https-to-http downgrades:
+// net/http forwards custom headers on every redirect and strips only
+// Authorization and cookies across hosts.
+func (c *Client) do(req *http.Request) (*http.Response, error) {
+	if len(c.headers) == 0 {
+		return c.httpClient.Do(req)
+	}
+	httpClient := *c.httpClient
+	next := httpClient.CheckRedirect
+	host, secure := req.URL.Host, req.URL.Scheme == "https"
+	httpClient.CheckRedirect = func(redirect *http.Request, via []*http.Request) error {
+		// Drop them on another host or on a downgrade from https to http.
+		if redirect.URL.Host != host || (secure && redirect.URL.Scheme != "https") {
+			for name := range c.headers {
+				redirect.Header.Del(name)
+			}
+		}
+		if next != nil {
+			return next(redirect, via)
+		}
+		if len(via) >= 10 {
+			return errors.New("stopped after 10 redirects")
+		}
+		return nil
+	}
+	return httpClient.Do(req)
+}
+
 // newHTTPRequest creates a new HTTP POST request with JSON content type and optional auth.
 func (c *Client) newHTTPRequest(ctx context.Context, body []byte) (*http.Request, error) {
 	req, err := http.NewRequestWithContext(ctx, "POST", c.rpcURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
+	}
+	for name, value := range c.headers {
+		req.Header.Set(name, value)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if c.username != "" || c.password != "" {
@@ -367,7 +420,7 @@ func (c *Client) SendBatch(ctx context.Context, batch *BatchRequest) ([]*JSONRPC
 		return nil, err
 	}
 
-	httpResp, err := c.httpClient.Do(httpReq)
+	httpResp, err := c.do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send batch request: %w", err)
 	}

@@ -296,19 +296,6 @@ func encodeAccessList(accessList AccessList) []interface{} {
 	return rlpAccessList
 }
 
-// encodeSignature encodes a signature to RLP tuple [yParity, r, s].
-func encodeSignature(sig *signer.Signature) []interface{} {
-	var yParityBytes []byte
-	if sig.YParity != 0 {
-		yParityBytes = []byte{sig.YParity}
-	}
-	return []interface{}{
-		yParityBytes,
-		sig.R.Bytes(),
-		sig.S.Bytes(),
-	}
-}
-
 // encodeSignatureEnvelope encodes a signature envelope.
 // Per Tempo Transaction spec, signature types are detected by length and type prefix:
 // - secp256k1: raw 65 bytes (r || s || v), v = 27 + yParity - no type prefix

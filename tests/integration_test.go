@@ -33,7 +33,6 @@ var (
 	thetaUSD        = common.HexToAddress("0x20C0000000000000000000000000000000000003")
 	feeController   = common.HexToAddress("0xfeec000000000000000000000000000000000000")
 	accountKeychain = common.HexToAddress("0xAAAAAAAA00000000000000000000000000000000")
-	dex             = common.HexToAddress("0xdec0000000000000000000000000000000000000")
 	lpRecipient     = common.HexToAddress("0x6c4143BEd3A13cf9E5E43d45C60aD816FC091d0c")
 )
 
