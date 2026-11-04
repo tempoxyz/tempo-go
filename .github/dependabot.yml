@@ -22,6 +22,28 @@ updates:
       go-deps:
         patterns: ["*"]
 
+  - package-ecosystem: gomod
+    directory: /tests
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+      semver-major-days: 7
+    groups:
+      go-deps:
+        patterns: ["*"]
+
+  - package-ecosystem: gomod
+    directory: /examples/parallel-nonces
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+      semver-major-days: 7
+    groups:
+      go-deps:
+        patterns: ["*"]
+
   - package-ecosystem: npm
     directory: /examples/feepayer/client
     schedule:

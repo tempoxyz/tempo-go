@@ -7,6 +7,7 @@ all: check
 build_examples:
 	cd examples/feepayer && go build -o ../../bin/feepayer ./cmd
 	go build -o bin/simple-send ./examples/simple-send
+	cd examples/parallel-nonces && go build -o ../../bin/parallel-nonces .
 
 # Cleans all targets
 clean:
@@ -28,17 +29,22 @@ check:
 	go mod verify
 	test -z "$$(gofmt -l .)" || (echo "Code needs formatting. Run 'make fix'" && gofmt -l . && exit 1)
 	go vet ./...
+	cd tests && go vet ./...
+	cd examples/feepayer && go vet ./...
+	cd examples/parallel-nonces && go vet ./...
 	go test -race ./pkg/...
 
 # Formats code and tidies dependencies
 fix:
 	gofmt -s -w .
 	go mod tidy
+	cd tests && go mod tidy
 	cd examples/feepayer && go mod tidy
+	cd examples/parallel-nonces && go mod tidy
 
 # Run integration tests only (uses docker-compose tempo node by default)
 integration:
-	@TEMPO_RPC_URL=$${TEMPO_RPC_URL:-http://localhost:8545} go test -count=1 -run TestIntegration -timeout=10m ./tests
+	@cd tests && TEMPO_RPC_URL=$${TEMPO_RPC_URL:-http://localhost:8545} go test -count=1 -run TestIntegration -timeout=10m .
 
 # Start godoc server for viewing documentation
 docs:
