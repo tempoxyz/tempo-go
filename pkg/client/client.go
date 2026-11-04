@@ -46,8 +46,8 @@ func WithAuth(username, password string) Option {
 // https://api.tempo.xyz/rpc. Later calls add to or replace earlier ones.
 // Content-Type is always application/json. net/http sets Host,
 // Content-Length, Transfer-Encoding and Trailer itself and ignores them here.
-// The headers are not sent on a redirect to another host, so a secret such as
-// an API key stays with the configured RPC host.
+// The headers are not sent on a redirect to another host or from https to
+// http, so a secret such as an API key stays with the configured RPC host.
 func WithHeaders(headers map[string]string) Option {
 	return func(c *Client) {
 		if c.headers == nil {
@@ -201,7 +201,8 @@ func (c *Client) sendRequest(ctx context.Context, request *JSONRPCRequest) (*JSO
 	return &response, nil
 }
 
-// do sends req, keeping the WithHeaders headers off redirects to other hosts:
+// do sends req, keeping the WithHeaders headers off redirects to other hosts
+// and https-to-http downgrades:
 // net/http forwards custom headers on every redirect and strips only
 // Authorization and cookies across hosts.
 func (c *Client) do(req *http.Request) (*http.Response, error) {
@@ -210,9 +211,10 @@ func (c *Client) do(req *http.Request) (*http.Response, error) {
 	}
 	httpClient := *c.httpClient
 	next := httpClient.CheckRedirect
-	host := req.URL.Host
+	host, secure := req.URL.Host, req.URL.Scheme == "https"
 	httpClient.CheckRedirect = func(redirect *http.Request, via []*http.Request) error {
-		if redirect.URL.Host != host {
+		// Drop them on another host or on a downgrade from https to http.
+		if redirect.URL.Host != host || (secure && redirect.URL.Scheme != "https") {
 			for name := range c.headers {
 				redirect.Header.Del(name)
 			}
