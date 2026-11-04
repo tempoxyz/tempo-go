@@ -1,4 +1,11 @@
-.PHONY: build_examples clean test check fix help integration docs fuzz fuzz-all
+.PHONY: build_examples clean test check lint tidy-check vulncheck fix help integration docs fuzz fuzz-all
+
+# Go modules in this repository
+MODULES := . tests examples/feepayer examples/parallel-nonces
+
+# Pinned tool versions (go run fetches and caches them)
+STATICCHECK := honnef.co/go/tools/cmd/staticcheck@v0.8.2
+GOVULNCHECK := golang.org/x/vuln/cmd/govulncheck@v1.9.0
 
 # Default target
 all: check
@@ -27,12 +34,26 @@ test-coverage:
 # Run checks as well as unit tests
 check:
 	go mod verify
-	test -z "$$(gofmt -l .)" || (echo "Code needs formatting. Run 'make fix'" && gofmt -l . && exit 1)
+	test -z "$$(gofmt -s -l .)" || (echo "Code needs formatting. Run 'make fix'" && gofmt -s -l . && exit 1)
 	go vet ./...
 	cd tests && go vet ./...
 	cd examples/feepayer && go vet ./...
 	cd examples/parallel-nonces && go vet ./...
 	go test -race ./pkg/...
+
+# Fails when any module's go.mod or go.sum is not tidy
+tidy-check:
+	@for m in $(MODULES); do echo "go mod tidy -diff: $$m"; (cd $$m && go mod tidy -diff) || exit 1; done
+
+# Runs staticcheck on every module
+lint:
+	@for m in $(MODULES); do echo "staticcheck: $$m"; (cd $$m && go run $(STATICCHECK) ./...) || exit 1; done
+
+# Reports known vulnerabilities reachable from the library and examples
+vulncheck:
+	go run $(GOVULNCHECK) ./...
+	cd examples/feepayer && go run $(GOVULNCHECK) ./...
+	cd examples/parallel-nonces && go run $(GOVULNCHECK) ./...
 
 # Formats code and tidies dependencies
 fix:
