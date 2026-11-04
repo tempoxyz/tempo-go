@@ -8,18 +8,78 @@ on:
     - cron: '0 */6 * * *'  # Every 6 hours - catch tempo drift early
   workflow_dispatch:  # Manual trigger
 
+# Superseded pushes to a pull request cancel their older run; main and
+# scheduled runs always finish.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions: {}
 
 jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+    - name: Secure runner
+      uses: tempoxyz/gh-actions/actions/secure-runner@35019557465e3c38ee3468be171771fd73577584 # 2026-10-20T06-22-38Z-35019557
+
+    - name: Checkout code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+
+    - name: Set up Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version: '1.26.x'
+        # Every module's go.sum keys the module and build cache.
+        cache-dependency-path: '**/go.sum'
+
+    - name: Download dependencies
+      run: go mod download
+      env:
+        GOVCS: '*:git'
+
+    - name: Verify modules
+      run: go mod verify
+
+    - name: Check go.mod and go.sum are tidy in every module
+      run: make tidy-check
+
+    - name: Check formatting
+      run: test -z "$(gofmt -s -l .)" || (echo "Run 'make fix':" && gofmt -s -l . && exit 1)
+
+    - name: Vet every module
+      run: |
+        go vet ./...
+        (cd tests && go vet ./...)
+        (cd examples/feepayer && go vet ./...)
+        (cd examples/parallel-nonces && go vet ./...)
+
+    - name: Staticcheck every module
+      run: make lint
+
+    - name: Govulncheck
+      run: make vulncheck
+
   test:
     name: Test (Go ${{ matrix.go-version }})
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
       id-token: write
     strategy:
+      fail-fast: false
       matrix:
-        go-version: ['1.25.x', '1.26.x']
+        # The go.mod minimum line plus both supported Go releases.
+        go-version: ['1.25.x', '1.26.x', '1.27.x']
 
     steps:
     - name: Secure runner
@@ -34,32 +94,26 @@ jobs:
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
         go-version: ${{ matrix.go-version }}
-
-    - name: Cache Go modules
-      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-      with:
-        path: |
-          ~/.cache/go-build
-          ~/go/pkg/mod
-        key: ${{ runner.os }}-go-${{ matrix.go-version }}-${{ hashFiles('**/go.sum') }}
-        restore-keys: |
-          ${{ runner.os }}-go-${{ matrix.go-version }}-
+        # Every module's go.sum keys the module and build cache.
+        cache-dependency-path: '**/go.sum'
 
     - name: Download dependencies
       run: go mod download
       env:
         GOVCS: '*:git'
 
-    - name: Run checks and tests
-      run: make check
+    - name: Run unit tests
+      run: go test -race -shuffle=on ./pkg/...
 
     - name: Build examples
       run: make build_examples
 
-  integration-localnet:
-    name: Integration Tests (Localnet)
+  fuzz:
+    name: Fuzz
+    # Seed corpora already run as unit tests; the scheduled run also explores.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    needs: test
+    timeout-minutes: 20
     permissions:
       contents: read
       id-token: write
@@ -76,7 +130,41 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
-        go-version: '1.25.x'
+        go-version: '1.26.x'
+        # Every module's go.sum keys the module and build cache.
+        cache-dependency-path: '**/go.sum'
+
+    - name: Download dependencies
+      run: go mod download
+      env:
+        GOVCS: '*:git'
+
+    - name: Run every fuzz target
+      run: make fuzz-all FUZZTIME=20s
+
+  integration-localnet:
+    name: Integration Tests (Localnet)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+    - name: Secure runner
+      uses: tempoxyz/gh-actions/actions/secure-runner@35019557465e3c38ee3468be171771fd73577584 # 2026-10-20T06-22-38Z-35019557
+
+    - name: Checkout code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+
+    - name: Set up Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version: '1.26.x'
+        # Every module's go.sum keys the module and build cache.
+        cache-dependency-path: '**/go.sum'
 
     - name: Download dependencies
       run: go mod download
@@ -88,14 +176,15 @@ jobs:
 
     - name: Wait for Tempo node to be ready
       run: |
-        echo "Waiting for Tempo node to start..."
-        for i in {1..30}; do
-          if curl -s http://localhost:8545 > /dev/null 2>&1; then
+        echo "Waiting for Tempo node to answer JSON-RPC..."
+        for _ in {1..60}; do
+          if curl -sf -X POST -H 'Content-Type: application/json' \
+            --data '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}' \
+            http://localhost:8545 | grep -q '"result"'; then
             echo "Tempo node is ready!"
             exit 0
           fi
-          echo "Attempt $i: Tempo node not ready yet..."
-          sleep 2
+          sleep 1
         done
         echo "Tempo node failed to start"
         docker compose logs
@@ -119,7 +208,7 @@ jobs:
   integration-devnet:
     name: Integration Tests (Devnet)
     runs-on: ubuntu-latest
-    needs: test
+    timeout-minutes: 15
     if: ${{ github.actor != 'dependabot[bot]' }}
     permissions:
       contents: read
@@ -137,7 +226,9 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
-        go-version: '1.25.x'
+        go-version: '1.26.x'
+        # Every module's go.sum keys the module and build cache.
+        cache-dependency-path: '**/go.sum'
 
     - name: Download dependencies
       run: go mod download
@@ -153,7 +244,7 @@ jobs:
   integration-testnet:
     name: Integration Tests (Testnet)
     runs-on: ubuntu-latest
-    needs: test
+    timeout-minutes: 15
     if: ${{ github.actor != 'dependabot[bot]' }}
     permissions:
       contents: read
@@ -171,7 +262,9 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
-        go-version: '1.25.x'
+        go-version: '1.26.x'
+        # Every module's go.sum keys the module and build cache.
+        cache-dependency-path: '**/go.sum'
 
     - name: Download dependencies
       run: go mod download
@@ -187,3 +280,30 @@ jobs:
         # value of TEMPO_HARDFORK in the test harness is "T3", so it's elided
         # here. If a future testnet downgrade or pre-T3 environment is needed,
         # re-add `TEMPO_HARDFORK: T2`.
+
+  # One stable check to require in branch protection, whatever jobs above
+  # are added or renamed. Skipped jobs (fuzz on PRs, devnet/testnet for
+  # Dependabot) count as passing.
+  ci-success:
+    name: CI Success
+    if: always()
+    needs: [lint, test, fuzz, integration-localnet, integration-devnet, integration-testnet]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+    - name: Secure runner
+      uses: tempoxyz/gh-actions/actions/secure-runner@35019557465e3c38ee3468be171771fd73577584 # 2026-10-20T06-22-38Z-35019557
+
+    - name: Check job results
+      env:
+        RESULTS: ${{ toJSON(needs.*.result) }}
+      run: |
+        echo "$RESULTS"
+        if echo "$RESULTS" | grep -Eq '"(failure|cancelled)"'; then
+          echo "A required job failed or was cancelled."
+          exit 1
+        fi

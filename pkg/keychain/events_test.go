@@ -47,8 +47,8 @@ func TestDecodeAdminKeyAuthorized_WrongTopicCount(t *testing.T) {
 func TestDecodeAdminKeyAuthorized_WrongSignature(t *testing.T) {
 	topics := []common.Hash{
 		common.HexToHash("0xdeadbeef"),
-		common.Hash{},
-		common.Hash{},
+		{},
+		{},
 	}
 	if _, _, err := DecodeAdminKeyAuthorized(topics); err == nil {
 		t.Error("expected error for wrong event signature")

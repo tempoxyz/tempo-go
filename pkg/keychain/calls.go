@@ -284,11 +284,7 @@ func toABIKeyRestrictions(restrictions *KeyRestrictions) (abiKeyRestrictions, er
 
 	limits := make([]abiTokenLimit, len(restrictions.limits))
 	for i, l := range restrictions.limits {
-		limits[i] = abiTokenLimit{
-			Token:  l.Token,
-			Amount: l.Amount,
-			Period: l.Period,
-		}
+		limits[i] = abiTokenLimit(l)
 	}
 
 	return abiKeyRestrictions{
