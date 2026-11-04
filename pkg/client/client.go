@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
@@ -43,7 +44,10 @@ func WithAuth(username, password string) Option {
 // WithHeaders sets headers sent with every JSON-RPC request, such as a Tempo
 // API key in the tempo-api-key header for the hosted RPC at
 // https://api.tempo.xyz/rpc. Later calls add to or replace earlier ones.
-// Content-Type is always application/json.
+// Content-Type is always application/json. net/http sets Host,
+// Content-Length, Transfer-Encoding and Trailer itself and ignores them here.
+// The headers are not sent on a redirect to another host, so a secret such as
+// an API key stays with the configured RPC host.
 func WithHeaders(headers map[string]string) Option {
 	return func(c *Client) {
 		if c.headers == nil {
@@ -174,7 +178,7 @@ func (c *Client) sendRequest(ctx context.Context, request *JSONRPCRequest) (*JSO
 		return nil, err
 	}
 
-	httpResp, err := c.httpClient.Do(httpReq)
+	httpResp, err := c.do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send HTTP request: %w", err)
 	}
@@ -195,6 +199,33 @@ func (c *Client) sendRequest(ctx context.Context, request *JSONRPCRequest) (*JSO
 	}
 
 	return &response, nil
+}
+
+// do sends req, keeping the WithHeaders headers off redirects to other hosts:
+// net/http forwards custom headers on every redirect and strips only
+// Authorization and cookies across hosts.
+func (c *Client) do(req *http.Request) (*http.Response, error) {
+	if len(c.headers) == 0 {
+		return c.httpClient.Do(req)
+	}
+	httpClient := *c.httpClient
+	next := httpClient.CheckRedirect
+	host := req.URL.Host
+	httpClient.CheckRedirect = func(redirect *http.Request, via []*http.Request) error {
+		if redirect.URL.Host != host {
+			for name := range c.headers {
+				redirect.Header.Del(name)
+			}
+		}
+		if next != nil {
+			return next(redirect, via)
+		}
+		if len(via) >= 10 {
+			return errors.New("stopped after 10 redirects")
+		}
+		return nil
+	}
+	return httpClient.Do(req)
 }
 
 // newHTTPRequest creates a new HTTP POST request with JSON content type and optional auth.
@@ -387,7 +418,7 @@ func (c *Client) SendBatch(ctx context.Context, batch *BatchRequest) ([]*JSONRPC
 		return nil, err
 	}
 
-	httpResp, err := c.httpClient.Do(httpReq)
+	httpResp, err := c.do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send batch request: %w", err)
 	}
