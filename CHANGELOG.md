@@ -1,5 +1,12 @@
 # Changelog
 
+## `github.com/tempoxyz/tempo-go@0.8.1`
+
+### Patch Changes
+
+- Removed the unused internal `encodeSignature` helper and simplified token-limit ABI conversion, found by the staticcheck CI job. (by @brendanjryan, [#144](https://github.com/tempoxyz/tempo-go/pull/144))
+- Trimmed the module's dependencies: go-cmp is no longer compiled into `pkg/transaction`, and the integration tests (`tests/`) and the `parallel-nonces` example moved into their own modules, so go-ethereum's KZG and BLS packages (gnark-crypto, go-eth-kzg, c-kzg-4844, blst) and godotenv no longer appear in the root `go.mod`. (by @brendanjryan, [#141](https://github.com/tempoxyz/tempo-go/pull/141))
+
 ## `github.com/tempoxyz/tempo-go@0.8.0`
 
 ### Minor Changes
