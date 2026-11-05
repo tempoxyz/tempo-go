@@ -35,11 +35,24 @@ jobs:
         persist-credentials: false
 
     - name: Set up Go
+      id: setup-go
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
         go-version: '1.26.x'
+        # The steps below cache instead: restore everywhere, save only on main.
+        cache: false
+
+    - name: Restore Go cache
+      id: go-cache
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
         # Every module's go.sum keys the module and build cache.
-        cache-dependency-path: '**/go.sum'
+        key: ${{ runner.os }}-go-${{ steps.setup-go.outputs.go-version }}-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-${{ steps.setup-go.outputs.go-version }}-
 
     - name: Download dependencies
       run: go mod download
@@ -91,11 +104,24 @@ jobs:
         persist-credentials: false
 
     - name: Set up Go
+      id: setup-go
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
         go-version: ${{ matrix.go-version }}
+        # The steps below cache instead: restore everywhere, save only on main.
+        cache: false
+
+    - name: Restore Go cache
+      id: go-cache
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
         # Every module's go.sum keys the module and build cache.
-        cache-dependency-path: '**/go.sum'
+        key: ${{ runner.os }}-go-${{ steps.setup-go.outputs.go-version }}-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-${{ steps.setup-go.outputs.go-version }}-
 
     - name: Download dependencies
       run: go mod download
@@ -107,6 +133,16 @@ jobs:
 
     - name: Build examples
       run: make build_examples
+
+    # Only main writes the cache, so pull requests cannot evict it.
+    - name: Save Go cache
+      if: github.ref == 'refs/heads/main' && steps.go-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ steps.go-cache.outputs.cache-primary-key }}
 
   fuzz:
     name: Fuzz
@@ -128,11 +164,24 @@ jobs:
         persist-credentials: false
 
     - name: Set up Go
+      id: setup-go
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
         go-version: '1.26.x'
+        # The steps below cache instead: restore everywhere, save only on main.
+        cache: false
+
+    - name: Restore Go cache
+      id: go-cache
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
         # Every module's go.sum keys the module and build cache.
-        cache-dependency-path: '**/go.sum'
+        key: ${{ runner.os }}-go-${{ steps.setup-go.outputs.go-version }}-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-${{ steps.setup-go.outputs.go-version }}-
 
     - name: Download dependencies
       run: go mod download
@@ -160,11 +209,24 @@ jobs:
         persist-credentials: false
 
     - name: Set up Go
+      id: setup-go
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
         go-version: '1.26.x'
+        # The steps below cache instead: restore everywhere, save only on main.
+        cache: false
+
+    - name: Restore Go cache
+      id: go-cache
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
         # Every module's go.sum keys the module and build cache.
-        cache-dependency-path: '**/go.sum'
+        key: ${{ runner.os }}-go-${{ steps.setup-go.outputs.go-version }}-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-${{ steps.setup-go.outputs.go-version }}-
 
     - name: Download dependencies
       run: go mod download
@@ -224,11 +286,24 @@ jobs:
         persist-credentials: false
 
     - name: Set up Go
+      id: setup-go
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
         go-version: '1.26.x'
+        # The steps below cache instead: restore everywhere, save only on main.
+        cache: false
+
+    - name: Restore Go cache
+      id: go-cache
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
         # Every module's go.sum keys the module and build cache.
-        cache-dependency-path: '**/go.sum'
+        key: ${{ runner.os }}-go-${{ steps.setup-go.outputs.go-version }}-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-${{ steps.setup-go.outputs.go-version }}-
 
     - name: Download dependencies
       run: go mod download
@@ -260,11 +335,24 @@ jobs:
         persist-credentials: false
 
     - name: Set up Go
+      id: setup-go
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
         go-version: '1.26.x'
+        # The steps below cache instead: restore everywhere, save only on main.
+        cache: false
+
+    - name: Restore Go cache
+      id: go-cache
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
         # Every module's go.sum keys the module and build cache.
-        cache-dependency-path: '**/go.sum'
+        key: ${{ runner.os }}-go-${{ steps.setup-go.outputs.go-version }}-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-${{ steps.setup-go.outputs.go-version }}-
 
     - name: Download dependencies
       run: go mod download
