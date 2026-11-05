@@ -270,6 +270,29 @@ func TestIsCallAllowed_TransferWithRecipients(t *testing.T) {
 	}
 }
 
+func TestIsCallAllowed_RecipientWithDirtyPadding(t *testing.T) {
+	token := common.HexToAddress("0x20c0000000000000000000000000000000000001")
+	allowed := common.HexToAddress("0x4444444444444444444444444444444444444444")
+
+	kr := NewKeyRestrictions(0).WithAllowedCalls([]CallScope{
+		NewCallScopeBuilder(token).Transfer([]common.Address{allowed}).Build(),
+	})
+
+	// The low 20 bytes are the allowed recipient, but the padding isn't zero,
+	// which the AccountKeychain precompile rejects.
+	padding := make([]byte, 12)
+	padding[0] = 0x01
+	input := make([]byte, 0, 68)
+	input = append(input, SelectorTransfer[:]...)
+	input = append(input, padding...)
+	input = append(input, allowed.Bytes()...)
+	input = append(input, make([]byte, 32)...)
+
+	if kr.IsCallAllowed(token, input) {
+		t.Error("recipient word with non-zero padding should not be permitted")
+	}
+}
+
 func TestIsCallAllowed_NoRecipientsAllowsAny(t *testing.T) {
 	token := common.HexToAddress("0x20c0000000000000000000000000000000000001")
 	anyone := common.HexToAddress("0x9999999999999999999999999999999999999999")
