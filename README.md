@@ -2,7 +2,7 @@
 <br>
 
 <p align="center">
-  <a href="https://tempo.xyz">
+  <a href="https://tempo.com">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/tempoxyz/tempo/refs/heads/main/.github/assets/tempo-wordmark-white.svg">
       <img alt="Tempo wordmark" src="https://raw.githubusercontent.com/tempoxyz/tempo/refs/heads/main/.github/assets/tempo-wordmark-black.svg" width="360">
@@ -15,7 +15,7 @@
 
 # tempo-go
 
-Go SDK for building applications on [Tempo](https://tempo.xyz)
+Go SDK for building applications on [Tempo](https://tempo.com)
 
 **Contents**
 
@@ -215,7 +215,7 @@ docker-compose down
 
 ### External Resources
 
-- [Tempo Documentation](https://docs.tempo.xyz)
+- [Tempo Documentation](https://tempo.com/developers)
 
 ### API Reference
 
