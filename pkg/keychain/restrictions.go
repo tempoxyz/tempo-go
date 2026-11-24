@@ -206,7 +206,14 @@ func (kr *KeyRestrictions) IsCallAllowed(target common.Address, input []byte) bo
 	if len(input) < 36 {
 		return false
 	}
-	recipient := common.BytesToAddress(input[4:36])
+	// The word must be a clean ABI-encoded address: the precompile rejects
+	// non-zero upper bytes instead of truncating them.
+	for _, b := range input[4:16] {
+		if b != 0 {
+			return false
+		}
+	}
+	recipient := common.BytesToAddress(input[16:36])
 	for _, allowed := range rule.Recipients {
 		if allowed == recipient {
 			return true
